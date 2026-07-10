@@ -25,6 +25,13 @@ export interface PreserveImportMeta extends OpenEditorMeta {
   additions?: DocumentAdditions;
 }
 
+const PATHS_DESIGNED_MARKERS = [
+  "\n  # Copy your group-designed routes",
+  "\n  # ==================== DESIGNED ROUTES",
+  "\n  # === DESIGNED ROUTES ===",
+  "\n  # DESIGNED ROUTES",
+];
+
 function loadParsed(text: string): unknown {
   const trimmed = text.trim();
   if (!trimmed) throw new Error("Document is empty");
@@ -99,13 +106,6 @@ export function getImportSnapshot(doc: OpenAPIDocument): ImportSnapshot | null {
   return getPreserveMeta(doc).importSnapshot ?? null;
 }
 
-function emptyAdditions(additions: DocumentAdditions): boolean {
-  const pathCount = Object.keys(additions.paths ?? {}).length;
-  const schemaCount = Object.keys(additions.components?.schemas ?? {}).length;
-  const tagCount = (additions.tags ?? []).length;
-  return pathCount === 0 && schemaCount === 0 && tagCount === 0;
-}
-
 export function computeAdditions(
   doc: OpenAPIDocument,
   snapshot: ImportSnapshot
@@ -132,54 +132,111 @@ export function computeAdditions(
   };
 }
 
-/** Recompute which paths/schemas/tags are additions after an edit. */
-export function syncImportAdditions(doc: OpenAPIDocument): OpenAPIDocument {
-  const snapshot = getImportSnapshot(doc);
-  if (!snapshot) return doc;
-  return tagPreserveImport(doc, snapshot, computeAdditions(doc, snapshot));
+function emptyAdditions(additions: DocumentAdditions): boolean {
+  return (
+    Object.keys(additions.paths ?? {}).length === 0 &&
+    Object.keys(additions.components?.schemas ?? {}).length === 0 &&
+    (additions.tags ?? []).length === 0
+  );
 }
 
-/** Build export text: original import plus any new routes/schemas only. */
+/** Resolve additions from live doc state (not stale cached metadata). */
+export function resolveAdditions(doc: OpenAPIDocument): DocumentAdditions {
+  const snapshot = getImportSnapshot(doc);
+  if (!snapshot) return getAdditions(doc);
+  return computeAdditions(doc, snapshot);
+}
+
+/** Recompute additions after an edit, keeping import metadata from the anchor. */
+export function syncImportAdditions(
+  doc: OpenAPIDocument,
+  snapshot?: ImportSnapshot
+): OpenAPIDocument {
+  const snap = snapshot ?? getImportSnapshot(doc);
+  if (!snap) return doc;
+  const additions = computeAdditions(doc, snap);
+  return tagPreserveImport(doc, snap, additions);
+}
+
+/** Carry import anchor metadata forward when child editors spread a stale doc object. */
+export function mergeImportAnchor(prev: OpenAPIDocument, next: OpenAPIDocument): OpenAPIDocument {
+  if (!isPreserveImport(prev)) return next;
+  const snapshot = getImportSnapshot(prev);
+  if (!snapshot) return next;
+  return syncImportAdditions(
+    {
+      ...next,
+      [OPENEDITOR_KEY]: prev[OPENEDITOR_KEY],
+    },
+    snapshot
+  );
+}
+
+/** Build export text: original import plus new routes/schemas inserted in the right place. */
 export function buildExportYaml(sourceYaml: string, doc: OpenAPIDocument): string {
-  const additions = getAdditions(doc);
+  const additions = resolveAdditions(doc);
   if (emptyAdditions(additions)) return sourceYaml;
 
-  let result = sourceYaml.replace(/\r\n/g, "\n").trimEnd();
-  const blocks: string[] = [];
+  let result = sourceYaml.replace(/\r\n/g, "\n");
 
   if (additions.paths && Object.keys(additions.paths).length > 0) {
-    blocks.push(formatPathsInsertion(additions.paths));
+    result = insertPathsIntoSourceYaml(result, formatPathsInsertion(additions.paths));
   }
 
   if (additions.tags && additions.tags.length > 0) {
-    blocks.push(
-      dump({ tags: additions.tags }, { lineWidth: 120, sortKeys: false, noRefs: true }).trimEnd()
-    );
+    const tagsYaml = dump({ tags: additions.tags }, { lineWidth: 120, sortKeys: false, noRefs: true }).trimEnd();
+    result = insertTopLevelBlock(result, "tags:", tagsYaml);
   }
 
   const addedSchemas = additions.components?.schemas;
   if (addedSchemas && Object.keys(addedSchemas).length > 0) {
-    blocks.push(
-      dump(
-        { components: { schemas: addedSchemas } },
-        { lineWidth: 120, sortKeys: false, noRefs: true }
-      ).trimEnd()
-    );
-  }
-
-  if (blocks.length === 0) return sourceYaml;
-
-  const designedMarker = "\n  # Copy your group-designed routes";
-  const designedMarkerAlt = "\n  # ==================== DESIGNED ROUTES";
-  if (result.includes(designedMarker)) {
-    result = result.replace(designedMarker, `\n${blocks.join("\n\n")}${designedMarker}`);
-  } else if (result.includes(designedMarkerAlt)) {
-    result = result.replace(designedMarkerAlt, `\n${blocks.join("\n\n")}${designedMarkerAlt}`);
-  } else {
-    result = `${result}\n\n# --- Added in OpenEditor ---\n${blocks.join("\n\n")}\n`;
+    const schemaYaml = dump(
+      { components: { schemas: addedSchemas } },
+      { lineWidth: 120, sortKeys: false, noRefs: true }
+    ).trimEnd();
+    result = insertTopLevelBlock(result, "components:", schemaYaml);
   }
 
   return result;
+}
+
+/** Insert new path entries inside the existing `paths:` block. */
+export function insertPathsIntoSourceYaml(sourceYaml: string, pathsBlock: string): string {
+  for (const marker of PATHS_DESIGNED_MARKERS) {
+    if (sourceYaml.includes(marker)) {
+      return sourceYaml.replace(marker, `\n${pathsBlock}${marker}`);
+    }
+  }
+
+  const lines = sourceYaml.split("\n");
+  const pathsIdx = lines.findIndex((line) => /^paths:\s*$/.test(line));
+  if (pathsIdx < 0) {
+    return `${sourceYaml.trimEnd()}\npaths:\n${pathsBlock}\n`;
+  }
+
+  let insertAt = lines.length;
+  for (let i = pathsIdx + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.trim() === "") continue;
+    if (!/^\s/.test(line) && /^[A-Za-z0-9_"'-]+:/.test(line)) {
+      insertAt = i;
+      break;
+    }
+  }
+
+  const blockLines = pathsBlock.split("\n");
+  lines.splice(insertAt, 0, ...blockLines);
+  return lines.join("\n");
+}
+
+function insertTopLevelBlock(sourceYaml: string, keyPrefix: string, blockYaml: string): string {
+  const lines = sourceYaml.split("\n");
+  const insertAt = lines.findIndex((line) => line.startsWith(keyPrefix));
+  if (insertAt >= 0) {
+    lines.splice(insertAt, 0, blockYaml, "");
+    return lines.join("\n");
+  }
+  return `${sourceYaml.trimEnd()}\n\n${blockYaml}\n`;
 }
 
 function formatPathsInsertion(paths: Record<string, PathItemObject>): string {
@@ -200,7 +257,7 @@ export function reanchorLoadedDocument(
   content: OpenAPIDocument,
   sourceYaml: string
 ): OpenAPIDocument {
-  const { doc: anchored } = parseImport(sourceYaml);
+  const { doc: anchored, snapshot } = parseImport(sourceYaml);
   const merged: OpenAPIDocument = {
     ...anchored,
     info: content.info ?? anchored.info,
@@ -209,7 +266,7 @@ export function reanchorLoadedDocument(
     components: content.components ?? anchored.components,
     servers: content.servers ?? anchored.servers,
   };
-  return syncImportAdditions(merged);
+  return syncImportAdditions(merged, snapshot);
 }
 
 /** Drop import anchoring and allow full re-serialized export. */

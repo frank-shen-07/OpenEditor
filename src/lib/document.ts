@@ -2,7 +2,7 @@ import { load } from "js-yaml";
 import type { OpenAPIDocument } from "../types";
 import { normalizeDocument } from "./normalize";
 import { serializeDocument } from "./exportDocument";
-import { buildExportYaml, isPreserveImport } from "./preserveImport";
+import { buildExportYaml, getImportSnapshot, isPreserveImport } from "./preserveImport";
 
 export function parseDocument(text: string): OpenAPIDocument {
   const trimmed = text.trim();
@@ -32,6 +32,9 @@ export function getYamlForDisplay(
   sourceYaml: string | null,
   _useCanonicalYaml?: boolean
 ): string {
+  if (sourceYaml && getImportSnapshot(doc)) {
+    return buildExportYaml(sourceYaml, doc);
+  }
   if (sourceYaml && isPreserveImport(doc)) {
     return buildExportYaml(sourceYaml, doc);
   }

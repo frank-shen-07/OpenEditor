@@ -5,10 +5,11 @@ import { downloadYaml, clone } from "../lib/document";
 import { upgradeToOpenApi3 } from "../lib/exportDocument";
 import {
   isPreserveImport,
+  mergeImportAnchor,
   parseImport,
   releaseImportAnchor,
   reanchorLoadedDocument,
-  syncImportAdditions,
+  getImportSnapshot,
 } from "../lib/preserveImport";
 import { DEFAULT_DOCUMENT, SAMPLE_DOCUMENT } from "../lib/sample";
 import { useAuth } from "../context/AuthContext";
@@ -36,7 +37,7 @@ export function EditorPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const loadedUserId = useRef<string | null>(null);
 
-  const preserveImport = isPreserveImport(doc) && !!sourceYaml;
+  const preserveImport = isPreserveImport(doc) && !!sourceYaml && !!getImportSnapshot(doc);
 
   useEffect(() => {
     if (authLoading) return;
@@ -91,7 +92,7 @@ export function EditorPage() {
       setDoc((prev) => {
         const resolved = typeof next === "function" ? next(prev) : next;
         if (isPreserveImport(prev)) {
-          return syncImportAdditions(resolved);
+          return mergeImportAnchor(prev, resolved);
         }
         return resolved;
       });
