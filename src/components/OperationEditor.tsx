@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import type {
-  MediaTypeObject,
-  OperationObject,
-  ParameterObject,
-  ResponseObject,
-} from "../types";
+import type { HttpMethod, MediaTypeObject, OperationObject, ParameterObject, ResponseObject } from "../types";
 import { clone } from "../lib/document";
+import {
+  getDisplayParameters,
+  getParameterType,
+  METHODS_WITHOUT_BODY,
+} from "../lib/normalize";
 import {
   Checkbox,
   EmptyState,
@@ -16,10 +16,12 @@ import {
   TextInput,
 } from "./ui";
 
-const PARAM_LOCATIONS = ["query", "path", "header", "cookie"].map((v) => ({
-  value: v,
-  label: v,
-}));
+const PARAM_LOCATIONS = [
+  { value: "query", label: "Query — ?name=value in URL" },
+  { value: "path", label: "Path — /resource/{id}" },
+  { value: "header", label: "Header" },
+  { value: "cookie", label: "Cookie" },
+];
 
 const SCHEMA_TYPES = ["", "string", "number", "integer", "boolean", "array", "object"].map(
   (v) => ({ value: v, label: v === "" ? "(none)" : v })
@@ -29,37 +31,62 @@ const COMMON_STATUS_CODES = ["200", "201", "204", "400", "401", "403", "404", "4
 
 export function OperationEditor({
   operation,
+  method,
   availableTags,
   onChange,
 }: {
   operation: OperationObject;
+  method: HttpMethod;
   availableTags: string[];
   onChange: (op: OperationObject) => void;
 }) {
   const patch = (p: Partial<OperationObject>) => onChange({ ...operation, ...p });
 
-  const parameters = operation.parameters ?? [];
+  const parameters = getDisplayParameters(operation.parameters);
   const responses = operation.responses ?? {};
+  const showRequestBody = !METHODS_WITHOUT_BODY.has(method);
 
   const updateParam = (index: number, p: Partial<ParameterObject>) => {
+    const all = operation.parameters ?? [];
+    const display = getDisplayParameters(all);
+    const target = display[index];
+    const realIndex = all.indexOf(target);
+    if (realIndex < 0) return;
     patch({
-      parameters: parameters.map((param, i) => (i === index ? { ...param, ...p } : param)),
+      parameters: all.map((param, i) => (i === realIndex ? { ...param, ...p } : param)),
     });
   };
 
-  const updateParamSchemaType = (index: number, type: string) => {
-    const param = clone(parameters[index]);
+  const updateParamType = (index: number, type: string) => {
+    const all = operation.parameters ?? [];
+    const display = getDisplayParameters(all);
+    const target = display[index];
+    const realIndex = all.indexOf(target);
+    if (realIndex < 0) return;
+
+    const param = clone(all[realIndex]) as ParameterObject & Record<string, unknown>;
+    delete param.type;
     if (type) {
       param.schema = { ...(param.schema ?? {}), type };
     } else if (param.schema) {
       delete param.schema.type;
     }
-    patch({ parameters: parameters.map((p, i) => (i === index ? param : p)) });
+    patch({ parameters: all.map((p, i) => (i === realIndex ? param : p)) });
+  };
+
+  const removeParam = (index: number) => {
+    const all = operation.parameters ?? [];
+    const display = getDisplayParameters(all);
+    const target = display[index];
+    patch({ parameters: all.filter((p) => p !== target) });
   };
 
   const addParam = () => {
     patch({
-      parameters: [...parameters, { name: "", in: "query", required: false, schema: { type: "string" } }],
+      parameters: [
+        ...(operation.parameters ?? []),
+        { name: "", in: "query", required: false, schema: { type: "string" } },
+      ],
     });
   };
 
@@ -98,14 +125,6 @@ export function OperationEditor({
             value={operation.summary ?? ""}
             onChange={(v) => patch({ summary: v })}
             placeholder="List all pets"
-          />
-        </Field>
-        <Field label="Operation ID">
-          <TextInput
-            value={operation.operationId ?? ""}
-            onChange={(v) => patch({ operationId: v })}
-            placeholder="listPets"
-            mono
           />
         </Field>
         <Field label="Tags" hint="Comma-separated">
@@ -161,34 +180,32 @@ export function OperationEditor({
                     <TextInput
                       value={param.name ?? ""}
                       onChange={(v) => updateParam(i, { name: v })}
-                      placeholder="limit"
+                      placeholder="simulationId"
                       mono
                     />
                   </Field>
-                  <Field label="In">
+                  <Field label="Location">
                     <Select
                       value={param.in ?? "query"}
                       onChange={(v) => updateParam(i, { in: v })}
                       options={PARAM_LOCATIONS}
                     />
                   </Field>
-                  <Field label="Type">
+                  <Field label="Data type">
                     <Select
-                      value={param.schema?.type ?? ""}
-                      onChange={(v) => updateParamSchemaType(i, v)}
+                      value={getParameterType(param)}
+                      onChange={(v) => updateParamType(i, v)}
                       options={SCHEMA_TYPES}
                     />
                   </Field>
-                  <RemoveButton
-                    onClick={() => patch({ parameters: parameters.filter((_, j) => j !== i) })}
-                  />
+                  <RemoveButton onClick={() => removeParam(i)} />
                 </div>
                 <div className="card-row">
                   <Field label="Description">
                     <TextInput
                       value={param.description ?? ""}
                       onChange={(v) => updateParam(i, { description: v })}
-                      placeholder="Maximum number of items to return"
+                      placeholder="What this parameter is for"
                     />
                   </Field>
                   <Checkbox
@@ -203,83 +220,85 @@ export function OperationEditor({
         )}
       </div>
 
-      <div className="subsection">
-        <div className="opblock-section-header">
-          <h4>Request Body</h4>
-          {operation.requestBody ? (
-            <button
-              className="btn btn-sm"
-              type="button"
-              onClick={() => {
-                const next = { ...operation };
-                delete next.requestBody;
-                onChange(next);
-              }}
-            >
-              Remove
-            </button>
-          ) : (
-            <button
-              className="btn btn-sm"
-              type="button"
-              onClick={() =>
-                patch({
-                  requestBody: {
-                    required: true,
-                    content: { "application/json": { schema: { type: "object" } } },
-                  },
-                })
-              }
-            >
-              + Add Request Body
-            </button>
-          )}
-        </div>
-        {operation.requestBody && (
-          <div className="card card-compact">
-            <div className="card-row">
-              <Field label="Description">
-                <TextInput
-                  value={operation.requestBody.description ?? ""}
-                  onChange={(v) =>
-                    patch({ requestBody: { ...operation.requestBody, description: v } })
-                  }
-                  placeholder="Pet to add to the store"
-                />
-              </Field>
-              <Checkbox
-                checked={operation.requestBody.required ?? false}
-                onChange={(v) =>
-                  patch({ requestBody: { ...operation.requestBody, required: v } })
-                }
-                label="Required"
-              />
-            </div>
-            <Field
-              label="Schema (JSON)"
-              hint='Schema for application/json content, e.g. {"$ref": "#/components/schemas/Pet"}'
-            >
-              <SchemaJsonEditor
-                value={requestBodyJson}
-                onValid={(schema) =>
+      {showRequestBody && (
+        <div className="subsection">
+          <div className="opblock-section-header">
+            <h4>Request Body</h4>
+            {operation.requestBody ? (
+              <button
+                className="btn btn-sm"
+                type="button"
+                onClick={() => {
+                  const next = { ...operation };
+                  delete next.requestBody;
+                  onChange(next);
+                }}
+              >
+                Remove
+              </button>
+            ) : (
+              <button
+                className="btn btn-sm"
+                type="button"
+                onClick={() =>
                   patch({
                     requestBody: {
-                      ...operation.requestBody,
-                      content: {
-                        ...(operation.requestBody?.content ?? {}),
-                        "application/json": {
-                          ...((operation.requestBody?.content ?? {})["application/json"] ?? {}),
-                          schema,
-                        },
-                      },
+                      required: true,
+                      content: { "application/json": { schema: { type: "object" } } },
                     },
                   })
                 }
-              />
-            </Field>
+              >
+                + Add Request Body
+              </button>
+            )}
           </div>
-        )}
-      </div>
+          {operation.requestBody && (
+            <div className="card card-compact">
+              <div className="card-row">
+                <Field label="Description">
+                  <TextInput
+                    value={operation.requestBody.description ?? ""}
+                    onChange={(v) =>
+                      patch({ requestBody: { ...operation.requestBody, description: v } })
+                    }
+                    placeholder="Pet to add to the store"
+                  />
+                </Field>
+                <Checkbox
+                  checked={operation.requestBody.required ?? false}
+                  onChange={(v) =>
+                    patch({ requestBody: { ...operation.requestBody, required: v } })
+                  }
+                  label="Required"
+                />
+              </div>
+              <Field
+                label="Schema (JSON)"
+                hint='Schema for application/json content, e.g. {"$ref": "#/components/schemas/Pet"}'
+              >
+                <SchemaJsonEditor
+                  value={requestBodyJson}
+                  onValid={(schema) =>
+                    patch({
+                      requestBody: {
+                        ...operation.requestBody,
+                        content: {
+                          ...(operation.requestBody?.content ?? {}),
+                          "application/json": {
+                            ...((operation.requestBody?.content ?? {})["application/json"] ?? {}),
+                            schema,
+                          },
+                        },
+                      },
+                    })
+                  }
+                />
+              </Field>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="subsection">
         <div className="opblock-section-header">
@@ -358,7 +377,10 @@ function ResponseSchemaEditor({
   response: ResponseObject;
   onChange: (r: Partial<ResponseObject>) => void;
 }) {
-  const media: MediaTypeObject | undefined = response.content?.["application/json"];
+  const legacySchema = (response as ResponseObject & { schema?: unknown }).schema;
+  const media: MediaTypeObject | undefined =
+    response.content?.["application/json"] ??
+    (legacySchema ? { schema: legacySchema as MediaTypeObject["schema"] } : undefined);
   const hasSchema = media?.schema !== undefined;
 
   if (!hasSchema) {

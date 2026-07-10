@@ -1,25 +1,25 @@
 import { dump, load } from "js-yaml";
 import type { OpenAPIDocument } from "../types";
+import { normalizeDocument } from "./normalize";
 
 export function parseDocument(text: string): OpenAPIDocument {
   const trimmed = text.trim();
   if (!trimmed) {
     throw new Error("Document is empty");
   }
+  let parsed: unknown;
   // js-yaml handles JSON too (YAML is a superset), but try JSON first for
   // clearer error messages on .json files.
   if (trimmed.startsWith("{")) {
     try {
-      return JSON.parse(trimmed) as OpenAPIDocument;
+      parsed = JSON.parse(trimmed);
     } catch {
-      /* fall through to YAML */
+      parsed = load(trimmed);
     }
+  } else {
+    parsed = load(trimmed);
   }
-  const parsed = load(trimmed);
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("Document must be a YAML/JSON mapping at the top level");
-  }
-  return parsed as OpenAPIDocument;
+  return normalizeDocument(parsed);
 }
 
 export function serializeToYaml(doc: OpenAPIDocument): string {

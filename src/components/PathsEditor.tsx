@@ -449,6 +449,7 @@ export function PathsEditor({
                             </div>
                             <OperationEditor
                               key={key}
+                              method={method}
                               operation={operation}
                               availableTags={availableTags}
                               onChange={(op) => updateOperation(path, method, op)}

@@ -70,6 +70,7 @@ export interface ParameterObject {
   in?: string;
   description?: string;
   required?: boolean;
+  type?: string;
   schema?: SchemaObject;
   [key: string]: unknown;
 }
