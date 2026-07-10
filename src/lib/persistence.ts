@@ -21,7 +21,7 @@ export function useDocumentPersistence(user: { id: string } | null) {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestDoc = useRef<OpenAPIDocument | null>(null);
   const latestSourceYaml = useRef<string | null>(null);
-  const latestUseCanonicalYaml = useRef(true);
+  const latestPreserveImport = useRef(false);
   const activeIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -134,17 +134,15 @@ export function useDocumentPersistence(user: { id: string } | null) {
       doc: OpenAPIDocument,
       meta?: {
         sourceYaml?: string | null;
-        useCanonicalYaml?: boolean;
         preserveImport?: boolean;
       }
     ) => {
       if (!user || !ready || activeIdRef.current === null) return;
       latestDoc.current = doc;
       if (meta?.sourceYaml !== undefined) latestSourceYaml.current = meta.sourceYaml;
-      if (meta?.useCanonicalYaml !== undefined) {
-        latestUseCanonicalYaml.current = meta.useCanonicalYaml;
+      if (meta?.preserveImport !== undefined) {
+        latestPreserveImport.current = meta.preserveImport;
       }
-      const preserveImport = meta?.preserveImport ?? false;
       if (saveTimer.current) clearTimeout(saveTimer.current);
       setSaveStatus("saving");
       saveTimer.current = setTimeout(async () => {
@@ -153,11 +151,10 @@ export function useDocumentPersistence(user: { id: string } | null) {
         if (!user || !ready || id === null || !payload) return;
         try {
           const title = payload.info?.title?.trim() || "Untitled API";
-          const keepSourceYaml = preserveImport || !latestUseCanonicalYaml.current;
           const document = await updateDocument(id, {
             title,
             content: payload,
-            sourceYaml: keepSourceYaml ? latestSourceYaml.current : null,
+            sourceYaml: latestPreserveImport.current ? latestSourceYaml.current : null,
           });
           setDocuments((prev) =>
             prev.map((d) =>

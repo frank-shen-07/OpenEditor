@@ -10,8 +10,6 @@ export function parseDocument(text: string): OpenAPIDocument {
     throw new Error("Document is empty");
   }
   let parsed: unknown;
-  // js-yaml handles JSON too (YAML is a superset), but try JSON first for
-  // clearer error messages on .json files.
   if (trimmed.startsWith("{")) {
     try {
       parsed = JSON.parse(trimmed);
@@ -28,16 +26,16 @@ export function serializeToYaml(doc: OpenAPIDocument): string {
   return serializeDocument(doc);
 }
 
-/** Prefer preserved import text; append only additive edits when in preserve mode. */
+/** Export/display YAML — anchored imports never re-serialize to OpenAPI 3. */
 export function getYamlForDisplay(
   doc: OpenAPIDocument,
   sourceYaml: string | null,
-  useCanonicalYaml: boolean
+  _useCanonicalYaml?: boolean
 ): string {
-  if (sourceYaml && (isPreserveImport(doc) || !useCanonicalYaml)) {
+  if (sourceYaml && isPreserveImport(doc)) {
     return buildExportYaml(sourceYaml, doc);
   }
-  if (!useCanonicalYaml && sourceYaml) return sourceYaml;
+  if (sourceYaml) return sourceYaml;
   return serializeToYaml(doc);
 }
 
@@ -50,11 +48,11 @@ export function downloadYaml(
     preserveImport?: boolean;
   }
 ) {
-  const useCanonical = options?.useCanonicalYaml ?? true;
-  const text =
-    options?.sourceYaml && (options.preserveImport || !useCanonical)
-      ? buildExportYaml(options.sourceYaml, doc)
-      : getYamlForDisplay(doc, options?.sourceYaml ?? null, useCanonical);
+  const text = getYamlForDisplay(
+    doc,
+    options?.sourceYaml ?? null,
+    options?.useCanonicalYaml
+  );
   const name =
     filename ??
     `${(doc.info?.title ?? "openapi").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "openapi"}.yaml`;

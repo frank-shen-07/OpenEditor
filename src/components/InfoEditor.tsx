@@ -6,19 +6,16 @@ export function InfoEditor({
   doc,
   onChange,
   onUpgradeToOpenApi3,
-  readOnly = false,
 }: {
   doc: OpenAPIDocument;
   onChange: (doc: OpenAPIDocument) => void;
   onUpgradeToOpenApi3?: () => void;
-  readOnly?: boolean;
 }) {
   const info: InfoObject = doc.info ?? {};
   const specVersion = getSpecVersion(doc);
   const swagger2 = isSwagger2(doc);
 
   const setInfo = (patch: Partial<InfoObject>) => {
-    if (readOnly) return;
     onChange({ ...doc, info: { ...info, ...patch } });
   };
 
@@ -32,7 +29,6 @@ export function InfoEditor({
               type="text"
               value={info.title ?? ""}
               onChange={(e) => setInfo({ title: e.target.value })}
-              readOnly={readOnly}
             />
           </h2>
           <span className="version">
@@ -41,7 +37,6 @@ export function InfoEditor({
               type="text"
               value={info.version ?? ""}
               onChange={(e) => setInfo({ version: e.target.value })}
-              readOnly={readOnly}
             />
           </span>
           <span className="openapi-version spec-version-badge">
@@ -67,7 +62,6 @@ export function InfoEditor({
                   type="text"
                   value={doc.openapi ?? ""}
                   onChange={(e) => onChange({ ...doc, openapi: e.target.value })}
-                  readOnly={readOnly}
                 />
               </>
             )}
@@ -80,7 +74,6 @@ export function InfoEditor({
           value={info.description ?? ""}
           onChange={(v) => setInfo({ description: v })}
           rows={4}
-          readOnly={readOnly}
         />
       </div>
     </section>

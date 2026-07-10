@@ -99,16 +99,6 @@ export function getImportSnapshot(doc: OpenAPIDocument): ImportSnapshot | null {
   return getPreserveMeta(doc).importSnapshot ?? null;
 }
 
-export function isImportedPath(doc: OpenAPIDocument, path: string): boolean {
-  const snapshot = getImportSnapshot(doc);
-  return snapshot ? snapshot.pathKeys.includes(path) : false;
-}
-
-export function isImportedSchema(doc: OpenAPIDocument, name: string): boolean {
-  const snapshot = getImportSnapshot(doc);
-  return snapshot ? snapshot.schemaKeys.includes(name) : false;
-}
-
 function emptyAdditions(additions: DocumentAdditions): boolean {
   const pathCount = Object.keys(additions.paths ?? {}).length;
   const schemaCount = Object.keys(additions.components?.schemas ?? {}).length;
@@ -116,77 +106,40 @@ function emptyAdditions(additions: DocumentAdditions): boolean {
   return pathCount === 0 && schemaCount === 0 && tagCount === 0;
 }
 
-/** Apply a visual-editor update while keeping imported content untouched. */
-export function applyPreserveImportChange(
-  prev: OpenAPIDocument,
-  next: OpenAPIDocument
-): OpenAPIDocument {
-  const snapshot = getImportSnapshot(prev);
-  if (!snapshot) return next;
-
-  const importedPaths: Record<string, PathItemObject> = {};
-  for (const key of snapshot.pathKeys) {
-    if (prev.paths?.[key]) importedPaths[key] = prev.paths[key];
-  }
-
-  const importedSchemas: Record<string, SchemaObject> = {};
-  for (const key of snapshot.schemaKeys) {
-    const schema = prev.components?.schemas?.[key];
-    if (schema) importedSchemas[key] = schema;
-  }
-
-  const importedTags = (prev.tags ?? []).filter(
-    (t) => t.name && snapshot.tagNames.includes(t.name)
-  );
-
+export function computeAdditions(
+  doc: OpenAPIDocument,
+  snapshot: ImportSnapshot
+): DocumentAdditions {
   const additionPaths: Record<string, PathItemObject> = {};
-  for (const [key, value] of Object.entries(next.paths ?? {})) {
+  for (const [key, value] of Object.entries(doc.paths ?? {})) {
     if (!snapshot.pathKeys.includes(key)) additionPaths[key] = value;
   }
 
   const additionSchemas: Record<string, SchemaObject> = {};
-  for (const [key, value] of Object.entries(next.components?.schemas ?? {})) {
+  for (const [key, value] of Object.entries(doc.components?.schemas ?? {})) {
     if (!snapshot.schemaKeys.includes(key)) additionSchemas[key] = value;
   }
 
-  const additionTags = (next.tags ?? []).filter(
+  const additionTags = (doc.tags ?? []).filter(
     (t) => t.name && !snapshot.tagNames.includes(t.name)
   );
 
-  const additions: DocumentAdditions = {
+  return {
     paths: Object.keys(additionPaths).length > 0 ? additionPaths : undefined,
     tags: additionTags.length > 0 ? additionTags : undefined,
     components:
       Object.keys(additionSchemas).length > 0 ? { schemas: additionSchemas } : undefined,
   };
-
-  return tagPreserveImport(
-    {
-      ...prev,
-      info: prev.info,
-      servers: prev.servers,
-      schemes: prev.schemes,
-      host: prev.host,
-      basePath: prev.basePath,
-      swagger: prev.swagger,
-      openapi: prev.openapi,
-      security: prev.security,
-      securityDefinitions: prev.securityDefinitions,
-      definitions: prev.definitions,
-      "x-components": prev["x-components"],
-      paths: { ...importedPaths, ...additionPaths },
-      tags: [...importedTags, ...additionTags],
-      components: {
-        ...(prev.components ?? {}),
-        schemas: { ...importedSchemas, ...additionSchemas },
-      },
-    },
-    snapshot,
-    additions
-  );
 }
 
-/** Build export text: original import plus any additive changes. */
+/** Recompute which paths/schemas/tags are additions after an edit. */
+export function syncImportAdditions(doc: OpenAPIDocument): OpenAPIDocument {
+  const snapshot = getImportSnapshot(doc);
+  if (!snapshot) return doc;
+  return tagPreserveImport(doc, snapshot, computeAdditions(doc, snapshot));
+}
+
+/** Build export text: original import plus any new routes/schemas only. */
 export function buildExportYaml(sourceYaml: string, doc: OpenAPIDocument): string {
   const additions = getAdditions(doc);
   if (emptyAdditions(additions)) return sourceYaml;
@@ -240,4 +193,30 @@ function formatPathsInsertion(paths: Record<string, PathItemObject>): string {
     lines.push(`  ${path}:\n${indented}`);
   }
   return lines.join("\n");
+}
+
+/** Re-anchor from source text after cloud load (content JSON may have been normalized). */
+export function reanchorLoadedDocument(
+  content: OpenAPIDocument,
+  sourceYaml: string
+): OpenAPIDocument {
+  const { doc: anchored } = parseImport(sourceYaml);
+  const merged: OpenAPIDocument = {
+    ...anchored,
+    info: content.info ?? anchored.info,
+    paths: content.paths ?? anchored.paths,
+    tags: content.tags ?? anchored.tags,
+    components: content.components ?? anchored.components,
+    servers: content.servers ?? anchored.servers,
+  };
+  return syncImportAdditions(merged);
+}
+
+/** Drop import anchoring and allow full re-serialized export. */
+export function releaseImportAnchor(doc: OpenAPIDocument): OpenAPIDocument {
+  const next = { ...doc } as OpenAPIDocument;
+  const meta = getPreserveMeta(next);
+  delete (next as Record<string, unknown>)[OPENEDITOR_KEY];
+  if (meta.specVersion) return tagSpecVersion(next, meta.specVersion);
+  return next;
 }

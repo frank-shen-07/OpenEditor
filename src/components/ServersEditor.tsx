@@ -6,34 +6,29 @@ import { EmptyState, Field, RemoveButton, TextInput } from "./ui";
 export function ServersEditor({
   doc,
   onChange,
-  readOnly = false,
 }: {
   doc: OpenAPIDocument;
   onChange: (doc: OpenAPIDocument) => void;
-  readOnly?: boolean;
 }) {
   if (isSwagger2(doc)) {
-    return <Swagger2ServersEditor doc={doc} onChange={onChange} readOnly={readOnly} />;
+    return <Swagger2ServersEditor doc={doc} onChange={onChange} />;
   }
 
-  return <OpenApiServersEditor doc={doc} onChange={onChange} readOnly={readOnly} />;
+  return <OpenApiServersEditor doc={doc} onChange={onChange} />;
 }
 
 function Swagger2ServersEditor({
   doc,
   onChange,
-  readOnly = false,
 }: {
   doc: OpenAPIDocument;
   onChange: (doc: OpenAPIDocument) => void;
-  readOnly?: boolean;
 }) {
   const schemes = Array.isArray(doc.schemes) ? (doc.schemes as string[]) : ["http"];
   const host = typeof doc.host === "string" ? doc.host : "";
   const basePath = typeof doc.basePath === "string" ? doc.basePath : "";
 
   const patchSwagger2 = (patch: Partial<{ schemes: string[]; host: string; basePath: string }>) => {
-    if (readOnly) return;
     const next = {
       ...doc,
       schemes: patch.schemes ?? schemes,
@@ -90,16 +85,13 @@ function Swagger2ServersEditor({
 function OpenApiServersEditor({
   doc,
   onChange,
-  readOnly = false,
 }: {
   doc: OpenAPIDocument;
   onChange: (doc: OpenAPIDocument) => void;
-  readOnly?: boolean;
 }) {
   const servers = doc.servers ?? [];
 
   const setServers = (next: ServerObject[]) => {
-    if (readOnly) return;
     onChange({ ...doc, servers: next });
   };
 
@@ -114,7 +106,7 @@ function OpenApiServersEditor({
       <div className="schemes-server-container">
         <div className="schemes-header">
           <span className="schemes-title">Servers</span>
-          <button className="btn btn-execute btn-sm" onClick={addServer} type="button" disabled={readOnly}>
+          <button className="btn btn-execute btn-sm" onClick={addServer} type="button">
             + Add Server
           </button>
         </div>

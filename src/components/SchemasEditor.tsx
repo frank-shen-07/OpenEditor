@@ -1,17 +1,14 @@
 import { useEffect, useState } from "react";
 import type { OpenAPIDocument, SchemaObject } from "../types";
-import { isImportedSchema } from "../lib/preserveImport";
 import { Chevron, EmptyState, Field } from "./ui";
 import { JsonEditor, toJsonText } from "./JsonEditor";
 
 export function SchemasEditor({
   doc,
   onChange,
-  preserveImport = false,
 }: {
   doc: OpenAPIDocument;
   onChange: (doc: OpenAPIDocument) => void;
-  preserveImport?: boolean;
 }) {
   const schemas = doc.components?.schemas ?? {};
   const names = Object.keys(schemas);
@@ -63,7 +60,6 @@ export function SchemasEditor({
   };
 
   const removeSchema = (name: string) => {
-    if (preserveImport && isImportedSchema(doc, name)) return;
     const next = { ...schemas };
     delete next[name];
     setSchemas(next);
@@ -75,7 +71,6 @@ export function SchemasEditor({
   };
 
   const renameSchema = (oldName: string, newName: string) => {
-    if (preserveImport && isImportedSchema(doc, oldName)) return;
     const trimmed = newName.trim();
     if (!trimmed || trimmed === oldName || schemas[trimmed]) return;
     const next: Record<string, SchemaObject> = {};
@@ -161,7 +156,6 @@ export function SchemasEditor({
             names.map((name) => {
               const schema = schemas[name];
               const isOpen = openSchemas.has(name);
-              const locked = preserveImport && isImportedSchema(doc, name);
               return (
                 <div key={name} className={`model-container${isOpen ? " is-open" : ""}`}>
                   <button
@@ -170,7 +164,6 @@ export function SchemasEditor({
                     onClick={() => toggleSchema(name)}
                   >
                     <span className="model-title-text mono">{name}</span>
-                    {locked && <span className="imported-badge">Imported</span>}
                     <span className="model-hint">object</span>
                     <Chevron open={isOpen} />
                   </button>
@@ -181,9 +174,7 @@ export function SchemasEditor({
                           key={name}
                           name={name}
                           onRename={(v) => renameSchema(name, v)}
-                          readOnly={locked}
                         />
-                        {!locked && (
                         <button
                           className="btn btn-cancel btn-sm"
                           type="button"
@@ -191,7 +182,6 @@ export function SchemasEditor({
                         >
                           Delete
                         </button>
-                        )}
                       </div>
                       <p className="model-ref">
                         Referenced as{" "}
@@ -201,11 +191,7 @@ export function SchemasEditor({
                         <JsonEditor
                           key={`schema-${name}`}
                           value={toJsonText(schema)}
-                          readOnly={locked}
-                          onValid={(s) => {
-                            if (locked) return;
-                            setSchemas({ ...schemas, [name]: s as SchemaObject });
-                          }}
+                          onValid={(s) => setSchemas({ ...schemas, [name]: s as SchemaObject })}
                         />
                       </Field>
                     </div>
@@ -220,15 +206,7 @@ export function SchemasEditor({
   );
 }
 
-function SchemaNameInput({
-  name,
-  onRename,
-  readOnly = false,
-}: {
-  name: string;
-  onRename: (v: string) => void;
-  readOnly?: boolean;
-}) {
+function SchemaNameInput({ name, onRename }: { name: string; onRename: (v: string) => void }) {
   const [draft, setDraft] = useState(name);
 
   useEffect(() => setDraft(name), [name]);
@@ -238,7 +216,6 @@ function SchemaNameInput({
       className="input mono model-name-input"
       type="text"
       value={draft}
-      readOnly={readOnly}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={() => onRename(draft)}
       onKeyDown={(e) => {
