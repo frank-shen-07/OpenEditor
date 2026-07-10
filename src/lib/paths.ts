@@ -17,6 +17,27 @@ export interface TagGroup {
   operations: OperationRef[];
 }
 
+/** Top-level doc.tags first, then tags used on operations (excludes implicit "default"). */
+export function getAllTagNames(doc: OpenAPIDocument): string[] {
+  const definedOrder = (doc.tags ?? []).map((t) => t.name ?? "").filter(Boolean);
+  const seen = new Set(definedOrder);
+  const extra: string[] = [];
+
+  for (const item of Object.values(doc.paths ?? {})) {
+    for (const method of HTTP_METHODS) {
+      const op = item[method];
+      if (!op?.tags?.length) continue;
+      for (const tag of op.tags) {
+        if (!tag || tag === "default" || seen.has(tag)) continue;
+        seen.add(tag);
+        extra.push(tag);
+      }
+    }
+  }
+
+  return [...definedOrder, ...extra];
+}
+
 /** Group path operations by their first tag, matching Swagger UI layout. */
 export function groupOperationsByTag(doc: OpenAPIDocument): TagGroup[] {
   const paths = doc.paths ?? {};
@@ -38,8 +59,10 @@ export function groupOperationsByTag(doc: OpenAPIDocument): TagGroup[] {
     }
   }
 
-  const definedOrder = (doc.tags ?? []).map((t) => t.name ?? "").filter(Boolean);
-  const allTags = [...new Set([...definedOrder, ...groups.keys()])];
+  const allTags = getAllTagNames(doc);
+  if (groups.has("default")) {
+    allTags.push("default");
+  }
 
   return allTags.map((name) => ({
     name,

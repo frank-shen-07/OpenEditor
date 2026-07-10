@@ -7,7 +7,7 @@ import {
   type PathItemObject,
   type TagObject,
 } from "../types";
-import { groupOperationsByTag } from "../lib/paths";
+import { getAllTagNames, groupOperationsByTag } from "../lib/paths";
 import { isOperationSecured } from "../lib/security";
 import { Chevron, EmptyState, Field, LockIcon, MethodBadge, Select } from "./ui";
 import { OperationEditor } from "./OperationEditor";
@@ -47,7 +47,7 @@ export function PathsEditor({
 
   const tagSelectOptions = [
     { value: "", label: "(no tag)" },
-    ...(doc.tags ?? []).map((t) => t.name ?? "").filter(Boolean).map((t) => ({ value: t, label: t })),
+    ...getAllTagNames(doc).map((t) => ({ value: t, label: t })),
   ];
 
   const setPaths = (next: Record<string, PathItemObject>) => {
