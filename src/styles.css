@@ -1575,7 +1575,7 @@ code.mono {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background: var(--bg-primary);
+  background: var(--bg-page);
   color: var(--text-primary);
 }
 
@@ -1605,7 +1605,7 @@ code.mono {
   min-height: 100vh;
   display: grid;
   place-items: center;
-  background: var(--bg-primary);
+  background: var(--bg-page);
 }
 
 .landing-main {
@@ -1718,6 +1718,14 @@ code.mono {
 .auth-page-submit {
   width: 100%;
   margin-top: 4px;
+}
+
+.error-page {
+  padding: 48px 16px;
+}
+
+.error-page h1 {
+  margin: 0 0 12px;
 }
 
 /* ── Responsive ─────────────────────────────────────────────────────────── */

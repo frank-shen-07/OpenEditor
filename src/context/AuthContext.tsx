@@ -9,6 +9,7 @@ import {
 } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabase, supabaseConfigured } from "../lib/supabase";
+import { clearOAuthHashFromUrl, hasOAuthCallbackHash } from "../lib/authCallback";
 
 export interface AuthUser {
   id: string;
@@ -45,7 +46,9 @@ function toAuthUser(user: User): AuthUser {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [loading, setLoading] = useState(supabaseConfigured);
+  const [loading, setLoading] = useState(
+    supabaseConfigured || (typeof window !== "undefined" && hasOAuthCallbackHash())
+  );
 
   useEffect(() => {
     if (!supabase) {
@@ -53,14 +56,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    supabase.auth.getSession().then(({ data }) => {
-      setUser(data.session?.user ? toAuthUser(data.session.user) : null);
-      setLoading(false);
-    });
+    supabase.auth
+      .getSession()
+      .then(({ data }) => {
+        setUser(data.session?.user ? toAuthUser(data.session.user) : null);
+        setLoading(false);
+        if (data.session) clearOAuthHashFromUrl();
+      })
+      .catch(() => setLoading(false));
 
     const { data: subscription } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ? toAuthUser(session.user) : null);
       setLoading(false);
+      if (session) clearOAuthHashFromUrl();
     });
 
     return () => subscription.subscription.unsubscribe();
@@ -82,7 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!supabase) throw new Error("Supabase is not configured");
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: `${window.location.origin}/app` },
+      options: { redirectTo: `${window.location.origin}/auth/callback` },
     });
     if (error) throw error;
   }, []);
