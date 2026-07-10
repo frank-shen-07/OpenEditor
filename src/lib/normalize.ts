@@ -8,6 +8,7 @@ import type {
   ServerObject,
 } from "../types";
 import { HTTP_METHODS } from "../types";
+import { detectSpecVersion, tagSpecVersion } from "./specVersion";
 
 type Json = Record<string, unknown>;
 
@@ -18,29 +19,29 @@ export function normalizeDocument(raw: unknown): OpenAPIDocument {
   }
 
   const doc = structuredClone(raw) as OpenAPIDocument & Json;
+  const version = detectSpecVersion(doc);
 
-  if (doc.swagger === "2.0") {
-    return normalizeSwagger2(doc);
+  if (version === "2.0") {
+    return tagSpecVersion(normalizeSwagger2(doc), "2.0");
   }
 
-  normalizePathsInPlace(doc);
-  return doc;
+  normalizePathsInPlace(doc, { preserveXComponentRefs: true });
+  return tagSpecVersion(doc, version);
 }
 
 function normalizeSwagger2(doc: OpenAPIDocument & Json): OpenAPIDocument {
   const result = { ...doc } as OpenAPIDocument & Json;
-  result.openapi = result.openapi ?? "3.0.3";
-  delete result.swagger;
+  delete result.openapi;
 
   if (!result.servers?.length) {
     result.servers = swagger2Servers(doc);
   }
 
-  normalizePathsInPlace(result);
+  normalizePathsInPlace(result, { preserveXComponentRefs: true, swagger2: true });
   return result;
 }
 
-function swagger2Servers(doc: Json): ServerObject[] {
+export function swagger2Servers(doc: Json): ServerObject[] {
   const schemes = Array.isArray(doc.schemes) ? (doc.schemes as string[]) : ["https"];
   const host = typeof doc.host === "string" ? doc.host : "localhost";
   const basePath = typeof doc.basePath === "string" ? doc.basePath : "";
@@ -49,7 +50,10 @@ function swagger2Servers(doc: Json): ServerObject[] {
   }));
 }
 
-function normalizePathsInPlace(doc: OpenAPIDocument & Json) {
+export function normalizePathsInPlace(
+  doc: OpenAPIDocument & Json,
+  options: { preserveXComponentRefs?: boolean; swagger2?: boolean } = {}
+) {
   const paths = doc.paths;
   if (!paths || typeof paths !== "object") return;
 
@@ -58,28 +62,54 @@ function normalizePathsInPlace(doc: OpenAPIDocument & Json) {
     for (const method of HTTP_METHODS) {
       const op = item[method];
       if (op) {
-        item[method] = normalizeOperation(op, doc);
+        item[method] = normalizeOperation(op, doc, options);
       }
     }
   }
 }
 
-function normalizeOperation(op: OperationObject, doc: Json): OperationObject {
+function normalizeOperation(
+  op: OperationObject,
+  doc: Json,
+  options: { preserveXComponentRefs?: boolean; swagger2?: boolean } = {}
+): OperationObject {
   const next = { ...op };
   const rawParams = Array.isArray(op.parameters) ? op.parameters : [];
   const resolved = rawParams
-    .map((p) => resolveParameter(p, doc))
+    .map((p) => resolveParameter(p, doc, options.preserveXComponentRefs))
     .filter((p): p is ParameterObject => p !== null);
 
-  const bodyParams = resolved.filter((p) => p.in === "body");
+  const xComponentBodyRefs = resolved.filter((p) => isXComponentRef(p));
+  const bodyParams = resolved.filter((p) => p.in === "body" && !isXComponentRef(p));
   const otherParams = resolved
-    .filter((p) => p.in !== "body")
+    .filter((p) => p.in !== "body" && !isXComponentRef(p))
     .map((p) => normalizeParameterFields(p));
 
-  next.parameters = otherParams.length > 0 ? otherParams : undefined;
+  const refParams = resolved.filter((p) => isXComponentRef(p) && p.in !== "body");
 
-  if (!next.requestBody && bodyParams.length > 0) {
+  next.parameters =
+    [...otherParams, ...refParams, ...xComponentBodyRefs].length > 0
+      ? [...otherParams, ...refParams, ...xComponentBodyRefs]
+      : undefined;
+
+  if (!options.swagger2 && !next.requestBody && bodyParams.length > 0) {
     next.requestBody = bodyParamToRequestBody(bodyParams[0], doc);
+  } else if (options.swagger2 && bodyParams.length > 0) {
+    const bodyOnly = bodyParams.map((p) => normalizeParameterFields(p));
+    next.parameters = [...(next.parameters ?? []), ...bodyOnly];
+    if (!next.requestBody) {
+      next.requestBody = bodyParamToRequestBody(bodyOnly[0], doc);
+    }
+  }
+
+  if (options.swagger2 && xComponentBodyRefs.length > 0 && !next.requestBody) {
+    const ref = xComponentBodyRefs[0].$ref;
+    if (typeof ref === "string") {
+      const resolved = resolveRef(ref, doc);
+      if (resolved && typeof resolved === "object") {
+        next.requestBody = bodyParamToRequestBody(resolved as ParameterObject & Json, doc);
+      }
+    }
   }
 
   if (next.responses) {
@@ -93,14 +123,25 @@ function normalizeOperation(op: OperationObject, doc: Json): OperationObject {
   return next;
 }
 
-function resolveParameter(param: unknown, doc: Json): ParameterObject | null {
+function isXComponentRef(param: ParameterObject): boolean {
+  return typeof param.$ref === "string" && param.$ref.startsWith("#/x-components/");
+}
+
+function resolveParameter(
+  param: unknown,
+  doc: Json,
+  preserveXComponentRefs = false
+): ParameterObject | null {
   if (!param || typeof param !== "object") return null;
 
   const p = param as ParameterObject & Json;
   if (typeof p.$ref === "string") {
+    if (preserveXComponentRefs && p.$ref.startsWith("#/x-components/")) {
+      return p;
+    }
     const resolved = resolveRef(p.$ref, doc);
     if (!resolved) return null;
-    return resolveParameter(resolved, doc);
+    return resolveParameter(resolved, doc, preserveXComponentRefs);
   }
 
   if (!p.name && !p.in) return null;

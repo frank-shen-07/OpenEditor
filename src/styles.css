@@ -726,6 +726,16 @@ code.mono {
   border-radius: 4px;
 }
 
+.spec-version-badge {
+  gap: 8px;
+}
+
+.spec-upgrade-btn {
+  margin-left: 4px;
+  font-size: 11px;
+  padding: 2px 8px;
+}
+
 .info-oas-input {
   width: 50px;
   border: none;
@@ -1283,6 +1293,15 @@ code.mono {
 .yaml-view {
   display: flex;
   flex-direction: column;
+}
+
+.yaml-preserve-notice {
+  margin: 0;
+  padding: 8px 16px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .yaml-toolbar {

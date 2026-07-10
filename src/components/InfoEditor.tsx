@@ -1,14 +1,19 @@
 import type { InfoObject, OpenAPIDocument } from "../types";
+import { getSpecVersion, isSwagger2, specVersionLabel } from "../lib/specVersion";
 import { TextArea } from "./ui";
 
 export function InfoEditor({
   doc,
   onChange,
+  onUpgradeToOpenApi3,
 }: {
   doc: OpenAPIDocument;
   onChange: (doc: OpenAPIDocument) => void;
+  onUpgradeToOpenApi3?: () => void;
 }) {
   const info: InfoObject = doc.info ?? {};
+  const specVersion = getSpecVersion(doc);
+  const swagger2 = isSwagger2(doc);
 
   const setInfo = (patch: Partial<InfoObject>) => {
     onChange({ ...doc, info: { ...info, ...patch } });
@@ -34,14 +39,32 @@ export function InfoEditor({
               onChange={(e) => setInfo({ version: e.target.value })}
             />
           </span>
-          <span className="openapi-version">
-            OAS{" "}
-            <input
-              className="info-oas-input mono"
-              type="text"
-              value={doc.openapi ?? ""}
-              onChange={(e) => onChange({ ...doc, openapi: e.target.value })}
-            />
+          <span className="openapi-version spec-version-badge">
+            {swagger2 ? (
+              <>
+                {specVersionLabel(specVersion)}
+                {onUpgradeToOpenApi3 && (
+                  <button
+                    className="btn btn-sm spec-upgrade-btn"
+                    type="button"
+                    onClick={onUpgradeToOpenApi3}
+                    title="Convert this document to OpenAPI 3 format"
+                  >
+                    Upgrade to OAS 3
+                  </button>
+                )}
+              </>
+            ) : (
+              <>
+                OAS{" "}
+                <input
+                  className="info-oas-input mono"
+                  type="text"
+                  value={doc.openapi ?? ""}
+                  onChange={(e) => onChange({ ...doc, openapi: e.target.value })}
+                />
+              </>
+            )}
           </span>
         </hgroup>
       </div>

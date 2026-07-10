@@ -1,7 +1,88 @@
 import type { OpenAPIDocument, ServerObject } from "../types";
+import { isSwagger2 } from "../lib/specVersion";
+import { swagger2Servers } from "../lib/normalize";
 import { EmptyState, Field, RemoveButton, TextInput } from "./ui";
 
 export function ServersEditor({
+  doc,
+  onChange,
+}: {
+  doc: OpenAPIDocument;
+  onChange: (doc: OpenAPIDocument) => void;
+}) {
+  if (isSwagger2(doc)) {
+    return <Swagger2ServersEditor doc={doc} onChange={onChange} />;
+  }
+
+  return <OpenApiServersEditor doc={doc} onChange={onChange} />;
+}
+
+function Swagger2ServersEditor({
+  doc,
+  onChange,
+}: {
+  doc: OpenAPIDocument;
+  onChange: (doc: OpenAPIDocument) => void;
+}) {
+  const schemes = Array.isArray(doc.schemes) ? (doc.schemes as string[]) : ["http"];
+  const host = typeof doc.host === "string" ? doc.host : "";
+  const basePath = typeof doc.basePath === "string" ? doc.basePath : "";
+
+  const patchSwagger2 = (patch: Partial<{ schemes: string[]; host: string; basePath: string }>) => {
+    const next = {
+      ...doc,
+      schemes: patch.schemes ?? schemes,
+      host: patch.host ?? host,
+      basePath: patch.basePath ?? basePath,
+    };
+    next.servers = swagger2Servers(next);
+    onChange(next);
+  };
+
+  return (
+    <section className="scheme-container">
+      <div className="schemes-server-container">
+        <div className="schemes-header">
+          <span className="schemes-title">Server (Swagger 2.0)</span>
+        </div>
+        <div className="servers-list">
+          <div className="server-card">
+            <Field label="Schemes (comma-separated)">
+              <TextInput
+                value={schemes.join(", ")}
+                onChange={(v) =>
+                  patchSwagger2({
+                    schemes: v
+                      .split(",")
+                      .map((s) => s.trim())
+                      .filter(Boolean),
+                  })
+                }
+                mono
+              />
+            </Field>
+            <Field label="Host">
+              <TextInput
+                value={host}
+                onChange={(v) => patchSwagger2({ host: v })}
+                mono
+              />
+            </Field>
+            <Field label="Base path">
+              <TextInput
+                value={basePath}
+                onChange={(v) => patchSwagger2({ basePath: v })}
+                mono
+              />
+            </Field>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function OpenApiServersEditor({
   doc,
   onChange,
 }: {

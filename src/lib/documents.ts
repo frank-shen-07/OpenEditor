@@ -12,6 +12,7 @@ export interface DocumentSummary {
 
 export interface SavedDocument extends DocumentSummary {
   content: OpenAPIDocument;
+  sourceYaml: string | null;
 }
 
 function rowToSummary(row: {
@@ -26,11 +27,13 @@ function rowToDocument(row: {
   id: string;
   title: string;
   content: unknown;
+  source_yaml?: string | null;
   updated_at: string;
 }): SavedDocument {
   return {
     ...rowToSummary(row),
     content: normalizeDocument(row.content),
+    sourceYaml: row.source_yaml ?? null,
   };
 }
 
@@ -51,7 +54,7 @@ export async function getDocument(id: string): Promise<SavedDocument> {
 
   const { data, error } = await supabase
     .from("documents")
-    .select("id, title, content, updated_at")
+    .select("id, title, content, source_yaml, updated_at")
     .eq("id", id)
     .single();
 
@@ -62,14 +65,15 @@ export async function getDocument(id: string): Promise<SavedDocument> {
 export async function createDocument(
   userId: string,
   title: string,
-  content: OpenAPIDocument
+  content: OpenAPIDocument,
+  sourceYaml: string | null = null
 ): Promise<SavedDocument> {
   if (!supabase) throw new Error("Supabase is not configured");
 
   const { data, error } = await supabase
     .from("documents")
-    .insert({ user_id: userId, title, content })
-    .select("id, title, content, updated_at")
+    .insert({ user_id: userId, title, content, source_yaml: sourceYaml })
+    .select("id, title, content, source_yaml, updated_at")
     .single();
 
   if (error) throw new Error(error.message);
@@ -78,19 +82,20 @@ export async function createDocument(
 
 export async function updateDocument(
   id: string,
-  patch: { title?: string; content?: OpenAPIDocument }
+  patch: { title?: string; content?: OpenAPIDocument; sourceYaml?: string | null }
 ): Promise<SavedDocument> {
   if (!supabase) throw new Error("Supabase is not configured");
 
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (patch.title !== undefined) updates.title = patch.title;
   if (patch.content !== undefined) updates.content = patch.content;
+  if (patch.sourceYaml !== undefined) updates.source_yaml = patch.sourceYaml;
 
   const { data, error } = await supabase
     .from("documents")
     .update(updates)
     .eq("id", id)
-    .select("id, title, content, updated_at")
+    .select("id, title, content, source_yaml, updated_at")
     .single();
 
   if (error) throw new Error(error.message);

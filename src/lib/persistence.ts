@@ -20,6 +20,8 @@ export function useDocumentPersistence(user: { id: string } | null) {
   const [ready, setReady] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestDoc = useRef<OpenAPIDocument | null>(null);
+  const latestSourceYaml = useRef<string | null>(null);
+  const latestUseCanonicalYaml = useRef(true);
   const activeIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -49,6 +51,7 @@ export function useDocumentPersistence(user: { id: string } | null) {
       return {
         doc: document.content,
         baseline: clone(document.content),
+        sourceYaml: document.sourceYaml,
       };
     } catch {
       setSaveStatus("error");
@@ -68,6 +71,7 @@ export function useDocumentPersistence(user: { id: string } | null) {
       return {
         doc: document.content,
         baseline: clone(document.content),
+        sourceYaml: document.sourceYaml,
       };
     } catch {
       setSaveStatus("error");
@@ -77,12 +81,12 @@ export function useDocumentPersistence(user: { id: string } | null) {
   }, []);
 
   const createNewDocument = useCallback(
-    async (doc: OpenAPIDocument) => {
+    async (doc: OpenAPIDocument, sourceYaml: string | null = null) => {
       if (!user) return null;
       setSaveStatus("saving");
       try {
         const title = doc.info?.title?.trim() || "Untitled API";
-        const document = await createDocument(user.id, title, doc);
+        const document = await createDocument(user.id, title, doc, sourceYaml);
         setDocuments((prev) => [
           { id: document.id, title: document.title, updatedAt: document.updatedAt },
           ...prev,
@@ -116,9 +120,16 @@ export function useDocumentPersistence(user: { id: string } | null) {
   );
 
   const queueSave = useCallback(
-    (doc: OpenAPIDocument) => {
+    (
+      doc: OpenAPIDocument,
+      meta?: { sourceYaml?: string | null; useCanonicalYaml?: boolean }
+    ) => {
       if (!user || !ready || activeIdRef.current === null) return;
       latestDoc.current = doc;
+      if (meta?.sourceYaml !== undefined) latestSourceYaml.current = meta.sourceYaml;
+      if (meta?.useCanonicalYaml !== undefined) {
+        latestUseCanonicalYaml.current = meta.useCanonicalYaml;
+      }
       if (saveTimer.current) clearTimeout(saveTimer.current);
       setSaveStatus("saving");
       saveTimer.current = setTimeout(async () => {
@@ -127,7 +138,11 @@ export function useDocumentPersistence(user: { id: string } | null) {
         if (!user || !ready || id === null || !payload) return;
         try {
           const title = payload.info?.title?.trim() || "Untitled API";
-          const document = await updateDocument(id, { title, content: payload });
+          const document = await updateDocument(id, {
+            title,
+            content: payload,
+            sourceYaml: latestUseCanonicalYaml.current ? null : latestSourceYaml.current,
+          });
           setDocuments((prev) =>
             prev.map((d) =>
               d.id === document.id

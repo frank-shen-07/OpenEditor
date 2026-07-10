@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { OpenAPIDocument } from "../types";
-import { parseDocument, serializeToYaml } from "../lib/document";
+import { parseDocument, serializeToYaml, getYamlForDisplay } from "../lib/document";
+import { getSpecVersion, specVersionLabel } from "../lib/specVersion";
 import { buildYamlDiff } from "../lib/yamlDiff";
 
 type ViewMode = "edit" | "diff";
@@ -9,32 +10,46 @@ type ViewMode = "edit" | "diff";
  * Raw YAML editor. Edits are parsed live; valid YAML is applied to the
  * document, invalid YAML shows an error but keeps the draft so the user can
  * finish typing. Diff mode compares the current document to a baseline snapshot.
+ *
+ * When a file is imported, the original YAML text is shown verbatim until the
+ * user edits via the visual editor (which switches to canonical serialization).
  */
 export function YamlView({
   doc,
   baselineDoc,
-  onChange,
+  sourceYaml,
+  useCanonicalYaml,
+  onRawChange,
   onUpdateBaseline,
 }: {
   doc: OpenAPIDocument;
   baselineDoc: OpenAPIDocument;
-  onChange: (doc: OpenAPIDocument) => void;
+  sourceYaml: string | null;
+  useCanonicalYaml: boolean;
+  onRawChange: (text: string, doc: OpenAPIDocument) => void;
   onUpdateBaseline: () => void;
 }) {
   const [mode, setMode] = useState<ViewMode>("edit");
   const [hideUnchanged, setHideUnchanged] = useState(false);
-  const [draft, setDraft] = useState(() => serializeToYaml(doc));
+  const [draft, setDraft] = useState(() =>
+    getYamlForDisplay(doc, sourceYaml, useCanonicalYaml)
+  );
   const [error, setError] = useState<string | null>(null);
   const selfEdit = useRef(false);
+
+  const displayYaml = useMemo(
+    () => getYamlForDisplay(doc, sourceYaml, useCanonicalYaml),
+    [doc, sourceYaml, useCanonicalYaml]
+  );
 
   useEffect(() => {
     if (selfEdit.current) {
       selfEdit.current = false;
       return;
     }
-    setDraft(serializeToYaml(doc));
+    setDraft(displayYaml);
     setError(null);
-  }, [doc]);
+  }, [displayYaml]);
 
   const currentYaml = useMemo(() => serializeToYaml(doc), [doc]);
   const baselineYaml = useMemo(() => serializeToYaml(baselineDoc), [baselineDoc]);
@@ -53,7 +68,7 @@ export function YamlView({
       const parsed = parseDocument(text);
       setError(null);
       selfEdit.current = true;
-      onChange(parsed);
+      onRawChange(text, parsed);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -61,6 +76,18 @@ export function YamlView({
 
   return (
     <div className="yaml-view">
+      {!useCanonicalYaml && sourceYaml && mode === "edit" && (
+        <p className="yaml-preserve-notice">
+          Showing imported file verbatim (comments and formatting preserved).
+          Editing the visual editor exports as {specVersionLabel(getSpecVersion(doc))}.
+        </p>
+      )}
+      {useCanonicalYaml && mode === "edit" && (
+        <p className="yaml-preserve-notice">
+          Exported as {specVersionLabel(getSpecVersion(doc))}. Use Import to preserve original
+          comments and formatting from a file.
+        </p>
+      )}
       <div className="yaml-toolbar">
         <div className="yaml-toolbar-left">
           <div className="yaml-mode-tabs" role="tablist" aria-label="YAML view mode">

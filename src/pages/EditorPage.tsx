@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, Navigate } from "react-router-dom";
 import type { OpenAPIDocument } from "../types";
 import { downloadYaml, parseDocument, clone } from "../lib/document";
+import { upgradeToOpenApi3 } from "../lib/exportDocument";
 import { DEFAULT_DOCUMENT, SAMPLE_DOCUMENT } from "../lib/sample";
 import { useAuth } from "../context/AuthContext";
 import { useDocumentPersistence } from "../lib/persistence";
@@ -22,6 +23,8 @@ export function EditorPage() {
   const { theme, toggleTheme } = useTheme();
   const [doc, setDoc] = useState<OpenAPIDocument>(DEFAULT_DOCUMENT);
   const [baselineDoc, setBaselineDoc] = useState<OpenAPIDocument>(() => clone(DEFAULT_DOCUMENT));
+  const [sourceYaml, setSourceYaml] = useState<string | null>(null);
+  const [useCanonicalYaml, setUseCanonicalYaml] = useState(true);
   const [importError, setImportError] = useState<string | null>(null);
   const [yamlOpen, setYamlOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -34,6 +37,8 @@ export function EditorPage() {
       loadedUserId.current = null;
       setDoc(DEFAULT_DOCUMENT);
       setBaselineDoc(clone(DEFAULT_DOCUMENT));
+      setSourceYaml(null);
+      setUseCanonicalYaml(true);
       return;
     }
 
@@ -44,20 +49,58 @@ export function EditorPage() {
       if (result) {
         setDoc(result.doc);
         setBaselineDoc(result.baseline);
+        setSourceYaml(result.sourceYaml);
+        setUseCanonicalYaml(!result.sourceYaml);
       }
     });
   }, [user, authLoading, persistence.loadDocuments]);
 
   useEffect(() => {
     if (user) {
-      persistence.queueSave(doc);
+      persistence.queueSave(doc, { sourceYaml, useCanonicalYaml });
     }
-  }, [doc, user, persistence.queueSave]);
+  }, [doc, sourceYaml, useCanonicalYaml, user, persistence.queueSave]);
 
-  const applyDocument = useCallback((next: OpenAPIDocument) => {
-    setDoc(next);
-    setBaselineDoc(clone(next));
+  const applyDocument = useCallback(
+    (
+      next: OpenAPIDocument,
+      options?: { sourceYaml?: string | null; useCanonicalYaml?: boolean }
+    ) => {
+      setDoc(next);
+      setBaselineDoc(clone(next));
+      if (options?.sourceYaml !== undefined) setSourceYaml(options.sourceYaml);
+      if (options?.useCanonicalYaml !== undefined) {
+        setUseCanonicalYaml(options.useCanonicalYaml);
+      } else {
+        setSourceYaml(null);
+        setUseCanonicalYaml(true);
+      }
+    },
+    []
+  );
+
+  const updateDocFromVisual = useCallback(
+    (next: OpenAPIDocument | ((prev: OpenAPIDocument) => OpenAPIDocument)) => {
+      setUseCanonicalYaml(true);
+      setSourceYaml(null);
+      setDoc(next);
+    },
+    []
+  );
+
+  const updateDocFromRaw = useCallback((text: string, parsed: OpenAPIDocument) => {
+    setSourceYaml(text);
+    setUseCanonicalYaml(false);
+    setDoc(parsed);
   }, []);
+
+  const handleUpgradeToOpenApi3 = useCallback(() => {
+    const upgraded = upgradeToOpenApi3(doc);
+    setUseCanonicalYaml(true);
+    setSourceYaml(null);
+    setDoc(upgraded);
+    setBaselineDoc(clone(upgraded));
+  }, [doc]);
 
   const handleImport = useCallback((file: File) => {
     setImportError(null);
@@ -65,7 +108,7 @@ export function EditorPage() {
     reader.onload = () => {
       try {
         const text = reader.result as string;
-        applyDocument(parseDocument(text));
+        applyDocument(parseDocument(text), { sourceYaml: text, useCanonicalYaml: false });
       } catch (e) {
         setImportError((e as Error).message);
       }
@@ -88,7 +131,12 @@ export function EditorPage() {
 
   const handleSelectDocument = async (id: string) => {
     const result = await persistence.selectDocument(id);
-    if (result) applyDocument(result.doc);
+    if (result) {
+      setDoc(result.doc);
+      setBaselineDoc(result.baseline);
+      setSourceYaml(result.sourceYaml);
+      setUseCanonicalYaml(!result.sourceYaml);
+    }
   };
 
   const handleCreateDocument = async () => {
@@ -99,7 +147,12 @@ export function EditorPage() {
 
   const handleDeleteDocument = async (id: string) => {
     const result = await persistence.deleteDocument(id);
-    if (result) applyDocument(result.doc);
+    if (result) {
+      setDoc(result.doc);
+      setBaselineDoc(result.baseline);
+      setSourceYaml(result.sourceYaml);
+      setUseCanonicalYaml(!result.sourceYaml);
+    }
   };
 
   if (authLoading) {
@@ -165,7 +218,7 @@ export function EditorPage() {
               <button
                 className="btn download-url"
                 type="button"
-                onClick={() => downloadYaml(doc)}
+                onClick={() => downloadYaml(doc, undefined, { sourceYaml, useCanonicalYaml })}
               >
                 Download YAML
               </button>
@@ -192,10 +245,14 @@ export function EditorPage() {
       )}
 
       <div className="swagger-container">
-        <InfoEditor doc={doc} onChange={setDoc} />
-        <ServersEditor doc={doc} onChange={setDoc} />
-        <PathsEditor doc={doc} onChange={setDoc} />
-        <SchemasEditor doc={doc} onChange={setDoc} />
+        <InfoEditor
+          doc={doc}
+          onChange={updateDocFromVisual}
+          onUpgradeToOpenApi3={handleUpgradeToOpenApi3}
+        />
+        <ServersEditor doc={doc} onChange={updateDocFromVisual} />
+        <PathsEditor doc={doc} onChange={updateDocFromVisual} />
+        <SchemasEditor doc={doc} onChange={updateDocFromVisual} />
 
         <section className={`models yaml-section${yamlOpen ? " is-open" : ""}`}>
           <button
@@ -211,7 +268,9 @@ export function EditorPage() {
               <YamlView
                 doc={doc}
                 baselineDoc={baselineDoc}
-                onChange={setDoc}
+                sourceYaml={sourceYaml}
+                useCanonicalYaml={useCanonicalYaml}
+                onRawChange={updateDocFromRaw}
                 onUpdateBaseline={() => setBaselineDoc(clone(doc))}
               />
             </div>
