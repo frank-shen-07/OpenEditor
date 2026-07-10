@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { Logo, ThemeToggle } from "../components/Chrome";
+import { GoogleIcon } from "../components/ui";
 import { useTheme } from "../hooks/useTheme";
 
 type AuthMode = "login" | "register";
@@ -119,6 +120,7 @@ export function AuthPage() {
             disabled={submitting || loading}
             onClick={handleGoogle}
           >
+            <GoogleIcon />
             Continue with Google
           </button>
 
