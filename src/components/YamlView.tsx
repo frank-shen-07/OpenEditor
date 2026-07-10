@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { OpenAPIDocument } from "../types";
 import { getYamlForDisplay } from "../lib/document";
-import { parseImport } from "../lib/preserveImport";
+import { parseImport, getPreserveImportDiffHint } from "../lib/preserveImport";
 import { buildYamlDiff } from "../lib/yamlDiff";
 
 type ViewMode = "edit" | "diff";
@@ -55,6 +55,11 @@ export function YamlView({
   const diff = useMemo(
     () => buildYamlDiff(baselineYaml, exportYaml),
     [baselineYaml, exportYaml]
+  );
+
+  const diffHint = useMemo(
+    () => (preserveImport ? getPreserveImportDiffHint(doc, baselineDoc) : null),
+    [preserveImport, doc, baselineDoc]
   );
 
   const visibleLines = hideUnchanged
@@ -157,7 +162,9 @@ export function YamlView({
       ) : (
         <div className="yaml-diff-panel mono">
           {!diff.hasChanges ? (
-            <p className="yaml-diff-empty">No changes since the last baseline.</p>
+            <p className="yaml-diff-empty">
+              {diffHint ?? "No export changes since the last baseline."}
+            </p>
           ) : visibleLines.length === 0 ? (
             <p className="yaml-diff-empty">All changes are hidden. Uncheck “Hide unchanged”.</p>
           ) : (

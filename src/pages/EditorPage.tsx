@@ -9,6 +9,8 @@ import {
   parseImport,
   reanchorLoadedDocument,
   getImportSnapshot,
+  getImportBaselineDoc,
+  hydrateImportSnapshot,
 } from "../lib/preserveImport";
 import { DEFAULT_DOCUMENT, SAMPLE_DOCUMENT } from "../lib/sample";
 import { useAuth } from "../context/AuthContext";
@@ -38,6 +40,26 @@ export function EditorPage() {
 
   const preserveImport = isPreserveImport(doc) && !!sourceYaml && !!getImportSnapshot(doc);
 
+  const applyLoadedDocument = useCallback(
+    (result: { doc: OpenAPIDocument; sourceYaml: string | null }) => {
+      const anchored =
+        result.sourceYaml && isPreserveImport(result.doc)
+          ? hydrateImportSnapshot(
+              reanchorLoadedDocument(result.doc, result.sourceYaml),
+              result.sourceYaml
+            )
+          : result.doc;
+      setDoc(anchored);
+      setBaselineDoc(
+        result.sourceYaml && isPreserveImport(result.doc)
+          ? clone(getImportBaselineDoc(result.sourceYaml))
+          : clone(anchored)
+      );
+      setSourceYaml(result.sourceYaml);
+    },
+    []
+  );
+
   useEffect(() => {
     if (authLoading) return;
 
@@ -53,17 +75,9 @@ export function EditorPage() {
     loadedUserId.current = user.id;
 
     persistence.loadDocuments().then((result) => {
-      if (result) {
-        const loaded =
-          result.sourceYaml && isPreserveImport(result.doc)
-            ? reanchorLoadedDocument(result.doc, result.sourceYaml)
-            : result.doc;
-        setDoc(loaded);
-        setBaselineDoc(clone(loaded));
-        setSourceYaml(result.sourceYaml);
-      }
+      if (result) applyLoadedDocument(result);
     });
-  }, [user, authLoading, persistence.loadDocuments]);
+  }, [user, authLoading, persistence.loadDocuments, applyLoadedDocument]);
 
   useEffect(() => {
     if (user) {
@@ -143,15 +157,7 @@ export function EditorPage() {
 
   const handleSelectDocument = async (id: string) => {
     const result = await persistence.selectDocument(id);
-    if (result) {
-      const loaded =
-        result.sourceYaml && isPreserveImport(result.doc)
-          ? reanchorLoadedDocument(result.doc, result.sourceYaml)
-          : result.doc;
-      setDoc(loaded);
-      setBaselineDoc(clone(loaded));
-      setSourceYaml(result.sourceYaml);
-    }
+    if (result) applyLoadedDocument(result);
   };
 
   const handleCreateDocument = async () => {
@@ -162,15 +168,7 @@ export function EditorPage() {
 
   const handleDeleteDocument = async (id: string) => {
     const result = await persistence.deleteDocument(id);
-    if (result) {
-      const loaded =
-        result.sourceYaml && isPreserveImport(result.doc)
-          ? reanchorLoadedDocument(result.doc, result.sourceYaml)
-          : result.doc;
-      setDoc(loaded);
-      setBaselineDoc(clone(loaded));
-      setSourceYaml(result.sourceYaml);
-    }
+    if (result) applyLoadedDocument(result);
   };
 
   if (authLoading) {

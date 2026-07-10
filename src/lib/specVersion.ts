@@ -9,6 +9,7 @@ export interface OpenEditorMeta {
   preserveImport?: boolean;
   importSnapshot?: {
     pathKeys: string[];
+    operationKeys?: string[];
     schemaKeys: string[];
     tagNames: string[];
   };

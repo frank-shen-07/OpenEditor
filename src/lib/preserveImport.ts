@@ -1,15 +1,18 @@
 import { dump, load } from "js-yaml";
 import type { OpenAPIDocument, PathItemObject, SchemaObject, TagObject } from "../types";
+import { HTTP_METHODS, type HttpMethod } from "../types";
 import {
   detectSpecVersion,
   OPENEDITOR_KEY,
   tagSpecVersion,
   type OpenEditorMeta,
 } from "./specVersion";
-import { formatPathsForYamlExport } from "./yamlExportFormat";
+import { formatPathItemForYamlExport, formatPathsForYamlExport } from "./yamlExportFormat";
+import { getSpecVersion } from "./specVersion";
 
 export interface ImportSnapshot {
   pathKeys: string[];
+  operationKeys: string[];
   schemaKeys: string[];
   tagNames: string[];
 }
@@ -67,11 +70,107 @@ export function parseImport(text: string): {
 }
 
 export function captureSnapshot(doc: OpenAPIDocument): ImportSnapshot {
+  const operationKeys: string[] = [];
+  for (const [path, item] of Object.entries(doc.paths ?? {})) {
+    if (!item || typeof item !== "object") continue;
+    for (const method of HTTP_METHODS) {
+      if (item[method]) operationKeys.push(`${path}:${method}`);
+    }
+  }
   return {
     pathKeys: Object.keys(doc.paths ?? {}),
+    operationKeys,
     schemaKeys: Object.keys(doc.components?.schemas ?? {}),
     tagNames: (doc.tags ?? []).map((t) => t.name).filter((n): n is string => !!n),
   };
+}
+
+/** Baseline document for diff/export — the parsed import before user additions. */
+export function getImportBaselineDoc(sourceYaml: string): OpenAPIDocument {
+  return parseImport(sourceYaml).doc;
+}
+
+function snapshotOperationKeys(snapshot: ImportSnapshot): Set<string> {
+  const keys = snapshot.operationKeys;
+  if (keys && keys.length > 0) {
+    return new Set(keys);
+  }
+  return new Set();
+}
+
+/** Rebuild operation-level snapshot from source YAML (legacy saves only tracked path keys). */
+export function hydrateImportSnapshot(
+  doc: OpenAPIDocument,
+  sourceYaml: string | null
+): OpenAPIDocument {
+  if (!isPreserveImport(doc) || !sourceYaml) return doc;
+  const existing = getImportSnapshot(doc);
+  if (existing?.operationKeys?.length) return doc;
+  const { snapshot } = parseImport(sourceYaml);
+  return syncImportAdditions(
+    {
+      ...doc,
+      [OPENEDITOR_KEY]: {
+        ...getPreserveMeta(doc),
+        importSnapshot: snapshot,
+      },
+    },
+    snapshot
+  );
+}
+
+function importedMethodsOnPath(snapshot: ImportSnapshot, path: string): string[] {
+  return snapshot.operationKeys
+    .filter((key) => key.startsWith(`${path}:`))
+    .map((key) => key.slice(path.length + 1).toUpperCase());
+}
+
+function splitOperationKey(key: string): { path: string; method: HttpMethod } {
+  const colon = key.indexOf(":");
+  return {
+    path: key.slice(0, colon),
+    method: key.slice(colon + 1) as HttpMethod,
+  };
+}
+
+/** Explain why export diff is empty despite visual edits (preserve-import mode). */
+export function getPreserveImportDiffHint(
+  doc: OpenAPIDocument,
+  baselineDoc: OpenAPIDocument
+): string | null {
+  const snapshot = getImportSnapshot(doc);
+  if (!snapshot) return null;
+  if (!emptyAdditions(computeAdditions(doc, snapshot))) return null;
+
+  const importedOps =
+    snapshot.operationKeys.length > 0
+      ? snapshot.operationKeys
+      : snapshot.pathKeys.flatMap((path) =>
+          HTTP_METHODS.filter((m) => baselineDoc.paths?.[path]?.[m]).map((m) => `${path}:${m}`)
+        );
+
+  const edited: string[] = [];
+  for (const key of importedOps) {
+    const { path, method } = splitOperationKey(key);
+    const before = baselineDoc.paths?.[path]?.[method];
+    const after = doc.paths?.[path]?.[method];
+    if (JSON.stringify(before) !== JSON.stringify(after)) {
+      edited.push(`${method.toUpperCase()} ${path}`);
+    }
+  }
+
+  if (edited.length > 0) {
+    const pathNotes = [...new Set(edited.map((e) => e.replace(/^[A-Z]+ /, "")))]
+      .map((path) => {
+        const methods = importedMethodsOnPath(snapshot, path);
+        return methods.length > 1
+          ? `${path} (imported: ${methods.join(", ")})`
+          : path;
+      })
+      .join("; ");
+    return `You edited route(s) already in your import: ${edited.join(", ")}. Different HTTP methods on the same path are tracked separately — adding GET /simulations would only appear in this diff if GET was not in the original file. Imported on shared path(s): ${pathNotes}. Edits to existing methods are not written to the YAML export; use a new path for designed routes (e.g. /wellbeing/tips).`;
+  }
+  return null;
 }
 
 export function getPreserveMeta(doc: OpenAPIDocument): PreserveImportMeta {
@@ -111,9 +210,27 @@ export function computeAdditions(
   doc: OpenAPIDocument,
   snapshot: ImportSnapshot
 ): DocumentAdditions {
+  const importedOps = snapshotOperationKeys(snapshot);
   const additionPaths: Record<string, PathItemObject> = {};
-  for (const [key, value] of Object.entries(doc.paths ?? {})) {
-    if (!snapshot.pathKeys.includes(key)) additionPaths[key] = value;
+
+  for (const [path, item] of Object.entries(doc.paths ?? {})) {
+    if (!item || typeof item !== "object") continue;
+
+    if (!snapshot.pathKeys.includes(path)) {
+      additionPaths[path] = item;
+      continue;
+    }
+
+    const newMethods: PathItemObject = {};
+    for (const method of HTTP_METHODS) {
+      const op = item[method];
+      if (op && !importedOps.has(`${path}:${method}`)) {
+        newMethods[method] = op;
+      }
+    }
+    if (Object.keys(newMethods).length > 0) {
+      additionPaths[path] = newMethods;
+    }
   }
 
   const additionSchemas: Record<string, SchemaObject> = {};
@@ -181,10 +298,7 @@ export function buildExportYaml(sourceYaml: string, doc: OpenAPIDocument): strin
   let result = sourceYaml.replace(/\r\n/g, "\n");
 
   if (additions.paths && Object.keys(additions.paths).length > 0) {
-    result = insertPathsIntoSourceYaml(
-      result,
-      formatPathsInsertion(additions.paths, doc)
-    );
+    result = insertPathAdditions(result, additions.paths, doc);
   }
 
   if (additions.tags && additions.tags.length > 0) {
@@ -241,6 +355,69 @@ function insertTopLevelBlock(sourceYaml: string, keyPrefix: string, blockYaml: s
     return lines.join("\n");
   }
   return `${sourceYaml.trimEnd()}\n\n${blockYaml}\n`;
+}
+
+function pathExistsInSourceYaml(sourceYaml: string, path: string): boolean {
+  const escaped = path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^  ${escaped}:\\s*$`, "m").test(sourceYaml);
+}
+
+function insertPathAdditions(
+  sourceYaml: string,
+  additions: Record<string, PathItemObject>,
+  doc: OpenAPIDocument
+): string {
+  let result = sourceYaml;
+  for (const [path, item] of Object.entries(additions)) {
+    if (pathExistsInSourceYaml(result, path)) {
+      result = mergeOperationsIntoExistingPath(result, path, item, doc);
+    } else {
+      result = insertPathsIntoSourceYaml(result, formatPathsInsertion({ [path]: item }, doc));
+    }
+  }
+  return result;
+}
+
+/** Append new HTTP methods under an existing path entry in source YAML. */
+export function mergeOperationsIntoExistingPath(
+  sourceYaml: string,
+  path: string,
+  methods: PathItemObject,
+  doc: OpenAPIDocument
+): string {
+  const lines = sourceYaml.split("\n");
+  const pathLine = `  ${path}:`;
+  const pathIdx = lines.findIndex((line) => line === pathLine);
+  if (pathIdx < 0) {
+    return insertPathsIntoSourceYaml(sourceYaml, formatPathsInsertion({ [path]: methods }, doc));
+  }
+
+  let insertAt = lines.length;
+  for (let i = pathIdx + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (/^  \/\S/.test(line)) {
+      insertAt = i;
+      break;
+    }
+    if (line.trim() !== "" && !/^\s/.test(line) && /^[A-Za-z0-9_"'-]+:/.test(line)) {
+      insertAt = i;
+      break;
+    }
+  }
+
+  const blockLines = formatPathMethodsInsertion(methods, doc).split("\n");
+  lines.splice(insertAt, 0, ...blockLines);
+  return lines.join("\n");
+}
+
+function formatPathMethodsInsertion(item: PathItemObject, doc: OpenAPIDocument): string {
+  const version = getSpecVersion(doc);
+  const formatted = formatPathItemForYamlExport(item, version);
+  const itemYaml = dump(formatted, { lineWidth: 120, sortKeys: false, noRefs: true }).trimEnd();
+  return itemYaml
+    .split("\n")
+    .map((line) => (line ? `    ${line}` : ""))
+    .join("\n");
 }
 
 function formatPathsInsertion(
