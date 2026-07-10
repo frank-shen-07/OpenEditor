@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { SchemaObject } from "../types";
 import { generateSchemaFromExample, isEmptySchema } from "../lib/schemaFromExample";
-import { JsonEditor, toJsonText } from "./JsonEditor";
+import { JsonEditor, toJsonText, type JsonEditorHandle } from "./JsonEditor";
 import { Chevron, Field } from "./ui";
 
 export function ExampleSchemaEditor({
@@ -21,10 +21,11 @@ export function ExampleSchemaEditor({
 }) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
+  const exampleEditorRef = useRef<JsonEditorHandle>(null);
 
   const applyGeneratedSchema = (value: unknown): boolean => {
     if (value === undefined || (requireObject && value === null)) {
-      setGenError("Add a JSON example first");
+      setGenError("Add a valid JSON example first");
       return false;
     }
     if (requireObject && typeof value === "object" && value !== null && !Array.isArray(value)) {
@@ -60,6 +61,7 @@ export function ExampleSchemaEditor({
       >
         <div className="example-schema-editor">
           <JsonEditor
+            ref={exampleEditorRef}
             value={toJsonText(example)}
             requireObject={requireObject}
             onValid={handleExampleValid}
@@ -68,7 +70,13 @@ export function ExampleSchemaEditor({
             <button
               className="btn btn-sm btn-execute"
               type="button"
-              onClick={() => applyGeneratedSchema(example)}
+              onClick={() => {
+                const parsed = exampleEditorRef.current?.getParsedValue();
+                if (parsed !== undefined) {
+                  onExampleChange(parsed);
+                }
+                applyGeneratedSchema(parsed ?? example);
+              }}
             >
               Generate schema from example
             </button>
