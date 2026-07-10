@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { OpenAPIDocument } from "./types";
 import { downloadYaml, parseDocument } from "./lib/document";
-import { SAMPLE_DOCUMENT } from "./lib/sample";
+import { DEFAULT_DOCUMENT, SAMPLE_DOCUMENT } from "./lib/sample";
 import { InfoEditor } from "./components/InfoEditor";
 import { ServersEditor } from "./components/ServersEditor";
 import { PathsEditor } from "./components/PathsEditor";
@@ -18,7 +18,7 @@ function getInitialTheme(): Theme {
 }
 
 export default function App() {
-  const [doc, setDoc] = useState<OpenAPIDocument>(SAMPLE_DOCUMENT);
+  const [doc, setDoc] = useState<OpenAPIDocument>(DEFAULT_DOCUMENT);
   const [importError, setImportError] = useState<string | null>(null);
   const [yamlOpen, setYamlOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>(getInitialTheme);

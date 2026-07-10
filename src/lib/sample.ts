@@ -1,5 +1,19 @@
 import type { OpenAPIDocument } from "../types";
 
+/** Blank document shown when users first open the site. */
+export const DEFAULT_DOCUMENT: OpenAPIDocument = {
+  openapi: "3.0.3",
+  info: {
+    title: "OpenAPI file editor",
+    version: "1.0.0",
+    description: "Edit anything here or import your own document.",
+  },
+  servers: [],
+  paths: {},
+  components: { schemas: {} },
+};
+
+/** Full example loaded when the user clicks "Sample". */
 export const SAMPLE_DOCUMENT: OpenAPIDocument = {
   openapi: "3.0.3",
   info: {

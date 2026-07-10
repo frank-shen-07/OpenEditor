@@ -53,7 +53,7 @@ export function InfoEditor({
         <TextArea
           value={info.description ?? ""}
           onChange={(v) => setInfo({ description: v })}
-          placeholder="API description (supports markdown)"
+          placeholder="Edit anything here or import your own document."
           rows={4}
         />
       </div>
