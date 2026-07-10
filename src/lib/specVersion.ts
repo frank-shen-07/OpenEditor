@@ -6,6 +6,17 @@ export const OPENEDITOR_KEY = "x-openeditor";
 
 export interface OpenEditorMeta {
   specVersion?: SpecVersion;
+  preserveImport?: boolean;
+  importSnapshot?: {
+    pathKeys: string[];
+    schemaKeys: string[];
+    tagNames: string[];
+  };
+  additions?: {
+    paths?: Record<string, unknown>;
+    tags?: unknown[];
+    components?: { schemas?: Record<string, unknown> };
+  };
 }
 
 type Json = Record<string, unknown>;

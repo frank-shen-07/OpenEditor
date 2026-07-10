@@ -42,6 +42,13 @@ export function DocumentsPanel({
             ? "Save failed"
             : null;
 
+  const confirmDelete = (doc: DocumentSummary) => {
+    if (window.confirm(`Delete “${doc.title}”? This cannot be undone.`)) {
+      onDelete(doc.id);
+      setOpen(false);
+    }
+  };
+
   return (
     <div className="documents-menu" ref={rootRef}>
       <button
@@ -68,7 +75,7 @@ export function DocumentsPanel({
             {documents.map((doc) => {
               const isActive = doc.id === activeId;
               return (
-                <li key={doc.id}>
+                <li key={doc.id} className="documents-menu-row">
                   <button
                     type="button"
                     role="option"
@@ -81,6 +88,18 @@ export function DocumentsPanel({
                   >
                     <span className="documents-menu-item-title">{doc.title}</span>
                     {isActive && <span className="documents-menu-item-badge">Open</span>}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-icon documents-menu-delete"
+                    aria-label={`Delete ${doc.title}`}
+                    title={`Delete ${doc.title}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      confirmDelete(doc);
+                    }}
+                  >
+                    ✕
                   </button>
                 </li>
               );
@@ -100,20 +119,6 @@ export function DocumentsPanel({
             >
               + New spec
             </button>
-            {documents.length > 1 && activeId !== null && (
-              <button
-                className="btn btn-cancel btn-sm"
-                type="button"
-                onClick={() => {
-                  if (window.confirm(`Delete “${active?.title ?? "this spec"}”? This cannot be undone.`)) {
-                    onDelete(activeId);
-                    setOpen(false);
-                  }
-                }}
-              >
-                Delete current
-              </button>
-            )}
           </div>
         </div>
       )}

@@ -3,6 +3,12 @@ import { Link, Navigate } from "react-router-dom";
 import type { OpenAPIDocument } from "../types";
 import { downloadYaml, parseDocument, clone } from "../lib/document";
 import { upgradeToOpenApi3 } from "../lib/exportDocument";
+import {
+  applyPreserveImportChange,
+  isPreserveImport,
+  parseImport,
+} from "../lib/preserveImport";
+import { normalizeDocument } from "../lib/normalize";
 import { DEFAULT_DOCUMENT, SAMPLE_DOCUMENT } from "../lib/sample";
 import { useAuth } from "../context/AuthContext";
 import { useDocumentPersistence } from "../lib/persistence";
@@ -30,6 +36,8 @@ export function EditorPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const loadedUserId = useRef<string | null>(null);
 
+  const preserveImport = isPreserveImport(doc);
+
   useEffect(() => {
     if (authLoading) return;
 
@@ -50,21 +58,24 @@ export function EditorPage() {
         setDoc(result.doc);
         setBaselineDoc(result.baseline);
         setSourceYaml(result.sourceYaml);
-        setUseCanonicalYaml(!result.sourceYaml);
+        setUseCanonicalYaml(!result.sourceYaml && !isPreserveImport(result.doc));
       }
     });
   }, [user, authLoading, persistence.loadDocuments]);
 
   useEffect(() => {
     if (user) {
-      persistence.queueSave(doc, { sourceYaml, useCanonicalYaml });
+      persistence.queueSave(doc, { sourceYaml, useCanonicalYaml, preserveImport });
     }
-  }, [doc, sourceYaml, useCanonicalYaml, user, persistence.queueSave]);
+  }, [doc, sourceYaml, useCanonicalYaml, preserveImport, user, persistence.queueSave]);
 
   const applyDocument = useCallback(
     (
       next: OpenAPIDocument,
-      options?: { sourceYaml?: string | null; useCanonicalYaml?: boolean }
+      options?: {
+        sourceYaml?: string | null;
+        useCanonicalYaml?: boolean;
+      }
     ) => {
       setDoc(next);
       setBaselineDoc(clone(next));
@@ -81,18 +92,36 @@ export function EditorPage() {
 
   const updateDocFromVisual = useCallback(
     (next: OpenAPIDocument | ((prev: OpenAPIDocument) => OpenAPIDocument)) => {
-      setUseCanonicalYaml(true);
-      setSourceYaml(null);
-      setDoc(next);
+      const wasPreserve = isPreserveImport(doc);
+      setDoc((prev) => {
+        const resolved = typeof next === "function" ? next(prev) : next;
+        if (isPreserveImport(prev)) {
+          return applyPreserveImportChange(prev, resolved);
+        }
+        return resolved;
+      });
+      if (!wasPreserve) {
+        setUseCanonicalYaml(true);
+        setSourceYaml(null);
+      }
     },
-    []
+    [doc]
   );
 
   const updateDocFromRaw = useCallback((text: string, parsed: OpenAPIDocument) => {
     setSourceYaml(text);
     setUseCanonicalYaml(false);
-    setDoc(parsed);
+    setDoc(normalizeDocument(parsed));
   }, []);
+
+  const handleEnableFullEditing = useCallback(() => {
+    if (!sourceYaml) return;
+    const parsed = normalizeDocument(parseDocument(sourceYaml));
+    setDoc(parsed);
+    setBaselineDoc(clone(parsed));
+    setUseCanonicalYaml(true);
+    setSourceYaml(null);
+  }, [sourceYaml]);
 
   const handleUpgradeToOpenApi3 = useCallback(() => {
     const upgraded = upgradeToOpenApi3(doc);
@@ -108,7 +137,8 @@ export function EditorPage() {
     reader.onload = () => {
       try {
         const text = reader.result as string;
-        applyDocument(parseDocument(text), { sourceYaml: text, useCanonicalYaml: false });
+        const { doc: imported, sourceYaml: raw } = parseImport(text);
+        applyDocument(imported, { sourceYaml: raw, useCanonicalYaml: false });
       } catch (e) {
         setImportError((e as Error).message);
       }
@@ -135,7 +165,7 @@ export function EditorPage() {
       setDoc(result.doc);
       setBaselineDoc(result.baseline);
       setSourceYaml(result.sourceYaml);
-      setUseCanonicalYaml(!result.sourceYaml);
+      setUseCanonicalYaml(!result.sourceYaml && !isPreserveImport(result.doc));
     }
   };
 
@@ -151,7 +181,7 @@ export function EditorPage() {
       setDoc(result.doc);
       setBaselineDoc(result.baseline);
       setSourceYaml(result.sourceYaml);
-      setUseCanonicalYaml(!result.sourceYaml);
+      setUseCanonicalYaml(!result.sourceYaml && !isPreserveImport(result.doc));
     }
   };
 
@@ -218,7 +248,9 @@ export function EditorPage() {
               <button
                 className="btn download-url"
                 type="button"
-                onClick={() => downloadYaml(doc, undefined, { sourceYaml, useCanonicalYaml })}
+                onClick={() =>
+                  downloadYaml(doc, undefined, { sourceYaml, useCanonicalYaml, preserveImport })
+                }
               >
                 Download YAML
               </button>
@@ -244,15 +276,28 @@ export function EditorPage() {
         </div>
       )}
 
+      {preserveImport && (
+        <div className="preserve-import-banner">
+          <p>
+            Imported spec is preserved verbatim. You can add new routes and schemas; existing
+            imported content stays untouched.
+          </p>
+          <button className="btn btn-sm" type="button" onClick={handleEnableFullEditing}>
+            Enable full editing
+          </button>
+        </div>
+      )}
+
       <div className="swagger-container">
         <InfoEditor
           doc={doc}
           onChange={updateDocFromVisual}
-          onUpgradeToOpenApi3={handleUpgradeToOpenApi3}
+          onUpgradeToOpenApi3={preserveImport ? undefined : handleUpgradeToOpenApi3}
+          readOnly={preserveImport}
         />
-        <ServersEditor doc={doc} onChange={updateDocFromVisual} />
-        <PathsEditor doc={doc} onChange={updateDocFromVisual} />
-        <SchemasEditor doc={doc} onChange={updateDocFromVisual} />
+        <ServersEditor doc={doc} onChange={updateDocFromVisual} readOnly={preserveImport} />
+        <PathsEditor doc={doc} onChange={updateDocFromVisual} preserveImport={preserveImport} />
+        <SchemasEditor doc={doc} onChange={updateDocFromVisual} preserveImport={preserveImport} />
 
         <section className={`models yaml-section${yamlOpen ? " is-open" : ""}`}>
           <button
@@ -270,6 +315,7 @@ export function EditorPage() {
                 baselineDoc={baselineDoc}
                 sourceYaml={sourceYaml}
                 useCanonicalYaml={useCanonicalYaml}
+                preserveImport={preserveImport}
                 onRawChange={updateDocFromRaw}
                 onUpdateBaseline={() => setBaselineDoc(clone(doc))}
               />

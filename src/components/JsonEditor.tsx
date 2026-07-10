@@ -15,8 +15,9 @@ export const JsonEditor = forwardRef<
     onValid: (parsed: unknown) => void;
     requireObject?: boolean;
     minRows?: number;
+    readOnly?: boolean;
   }
->(function JsonEditor({ value, onValid, requireObject = true, minRows = 6 }, ref) {
+>(function JsonEditor({ value, onValid, requireObject = true, minRows = 6, readOnly = false }, ref) {
   const [draft, setDraft] = useState(value);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,6 +49,7 @@ export const JsonEditor = forwardRef<
   }, [value]);
 
   const handleChange = (text: string) => {
+    if (readOnly) return;
     setDraft(text);
     if (!text.trim()) {
       setError(null);
@@ -77,6 +79,7 @@ export const JsonEditor = forwardRef<
         className={`json-editor-textarea mono${error ? " input-error" : ""}`}
         value={draft}
         rows={rows}
+        readOnly={readOnly}
         onChange={(e) => handleChange(e.target.value)}
         spellCheck={false}
       />

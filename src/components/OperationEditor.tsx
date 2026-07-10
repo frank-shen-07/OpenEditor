@@ -34,12 +34,17 @@ export function OperationEditor({
   operation,
   method,
   onChange,
+  readOnly = false,
 }: {
   operation: OperationObject;
   method: HttpMethod;
   onChange: (op: OperationObject) => void;
+  readOnly?: boolean;
 }) {
-  const patch = (p: Partial<OperationObject>) => onChange({ ...operation, ...p });
+  const patch = (p: Partial<OperationObject>) => {
+    if (readOnly) return;
+    onChange({ ...operation, ...p });
+  };
 
   const parameters = getDisplayParameters(operation.parameters);
   const responses = operation.responses ?? {};
@@ -47,6 +52,7 @@ export function OperationEditor({
   const requestMedia = operation.requestBody?.content?.["application/json"];
 
   const updateParam = (index: number, p: Partial<ParameterObject>) => {
+    if (readOnly) return;
     const all = operation.parameters ?? [];
     const display = getDisplayParameters(all);
     const target = display[index];
@@ -58,6 +64,7 @@ export function OperationEditor({
   };
 
   const updateParamType = (index: number, type: string) => {
+    if (readOnly) return;
     const all = operation.parameters ?? [];
     const display = getDisplayParameters(all);
     const target = display[index];
@@ -75,6 +82,7 @@ export function OperationEditor({
   };
 
   const removeParam = (index: number) => {
+    if (readOnly) return;
     const all = operation.parameters ?? [];
     const display = getDisplayParameters(all);
     const target = display[index];
@@ -82,6 +90,7 @@ export function OperationEditor({
   };
 
   const addParam = () => {
+    if (readOnly) return;
     patch({
       parameters: [
         ...(operation.parameters ?? []),
@@ -91,12 +100,14 @@ export function OperationEditor({
   };
 
   const addResponse = () => {
+    if (readOnly) return;
     const used = new Set(Object.keys(responses));
     const code = COMMON_STATUS_CODES.find((c) => !used.has(c)) ?? "default";
     patch({ responses: { ...responses, [code]: { description: "" } } });
   };
 
   const renameResponse = (oldCode: string, newCode: string) => {
+    if (readOnly) return;
     if (newCode === oldCode) return;
     const next: Record<string, ResponseObject> = {};
     for (const [code, resp] of Object.entries(responses)) {
@@ -106,16 +117,19 @@ export function OperationEditor({
   };
 
   const updateResponse = (code: string, p: Partial<ResponseObject>) => {
+    if (readOnly) return;
     patch({ responses: { ...responses, [code]: { ...responses[code], ...p } } });
   };
 
   const removeResponse = (code: string) => {
+    if (readOnly) return;
     const next = { ...responses };
     delete next[code];
     patch({ responses: next });
   };
 
   const updateRequestBodyMedia = (media: MediaTypeObject) => {
+    if (readOnly) return;
     patch({
       requestBody: {
         ...operation.requestBody,

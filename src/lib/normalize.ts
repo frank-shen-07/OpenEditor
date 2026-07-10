@@ -7,7 +7,7 @@ import type {
   SchemaObject,
   ServerObject,
 } from "../types";
-import { HTTP_METHODS } from "../types";
+import { HTTP_METHODS, type HttpMethod } from "../types";
 import { detectSpecVersion, tagSpecVersion } from "./specVersion";
 
 type Json = Record<string, unknown>;
@@ -62,7 +62,7 @@ export function normalizePathsInPlace(
     for (const method of HTTP_METHODS) {
       const op = item[method];
       if (op) {
-        item[method] = normalizeOperation(op, doc, options);
+        item[method] = normalizeOperation(op, doc, method, options);
       }
     }
   }
@@ -71,6 +71,7 @@ export function normalizePathsInPlace(
 function normalizeOperation(
   op: OperationObject,
   doc: Json,
+  method: HttpMethod,
   options: { preserveXComponentRefs?: boolean; swagger2?: boolean } = {}
 ): OperationObject {
   const next = { ...op };
@@ -79,40 +80,53 @@ function normalizeOperation(
     .map((p) => resolveParameter(p, doc, options.preserveXComponentRefs))
     .filter((p): p is ParameterObject => p !== null);
 
-  const xComponentBodyRefs = resolved.filter((p) => isXComponentRef(p));
+  const xComponentRefs = resolved.filter(isXComponentRef);
+  const xComponentBodyRefs = xComponentRefs.filter(isBodyComponentRef);
+  const xComponentOtherRefs = xComponentRefs.filter((p) => !isBodyComponentRef(p));
   const bodyParams = resolved.filter((p) => p.in === "body" && !isXComponentRef(p));
   const otherParams = resolved
     .filter((p) => p.in !== "body" && !isXComponentRef(p))
-    .map((p) => normalizeParameterFields(p));
+    .map((p) => (options.swagger2 ? p : normalizeParameterFields(p)));
 
-  const refParams = resolved.filter((p) => isXComponentRef(p) && p.in !== "body");
+  next.parameters = dedupeParameters([
+    ...otherParams,
+    ...xComponentOtherRefs,
+    ...xComponentBodyRefs,
+  ]);
+  if (next.parameters.length === 0) next.parameters = undefined;
 
-  next.parameters =
-    [...otherParams, ...refParams, ...xComponentBodyRefs].length > 0
-      ? [...otherParams, ...refParams, ...xComponentBodyRefs]
-      : undefined;
+  const allowsBody = !METHODS_WITHOUT_BODY.has(method);
 
   if (!options.swagger2 && !next.requestBody && bodyParams.length > 0) {
     next.requestBody = bodyParamToRequestBody(bodyParams[0], doc);
-  } else if (options.swagger2 && bodyParams.length > 0) {
+  } else if (options.swagger2 && bodyParams.length > 0 && allowsBody) {
     const bodyOnly = bodyParams.map((p) => normalizeParameterFields(p));
-    next.parameters = [...(next.parameters ?? []), ...bodyOnly];
+    next.parameters = dedupeParameters([...(next.parameters ?? []), ...bodyOnly]);
     if (!next.requestBody) {
       next.requestBody = bodyParamToRequestBody(bodyOnly[0], doc);
     }
   }
 
-  if (options.swagger2 && xComponentBodyRefs.length > 0 && !next.requestBody) {
+  if (
+    options.swagger2 &&
+    allowsBody &&
+    xComponentBodyRefs.length > 0 &&
+    !next.requestBody
+  ) {
     const ref = xComponentBodyRefs[0].$ref;
     if (typeof ref === "string") {
-      const resolved = resolveRef(ref, doc);
-      if (resolved && typeof resolved === "object") {
-        next.requestBody = bodyParamToRequestBody(resolved as ParameterObject & Json, doc);
+      const resolvedBody = resolveRef(ref, doc);
+      if (resolvedBody && typeof resolvedBody === "object") {
+        next.requestBody = bodyParamToRequestBody(resolvedBody as ParameterObject & Json, doc);
       }
     }
   }
 
-  if (next.responses) {
+  if (!allowsBody) {
+    delete next.requestBody;
+  }
+
+  if (next.responses && !options.swagger2) {
     const responses: Record<string, ResponseObject> = {};
     for (const [code, resp] of Object.entries(next.responses)) {
       responses[String(code)] = normalizeResponse(resp as ResponseObject & Json, doc);
@@ -121,6 +135,21 @@ function normalizeOperation(
   }
 
   return next;
+}
+
+function isBodyComponentRef(param: ParameterObject): boolean {
+  return typeof param.$ref === "string" && param.$ref.startsWith("#/x-components/body/");
+}
+
+export function dedupeParameters(params: ParameterObject[]): ParameterObject[] {
+  const seen = new Set<string>();
+  return params.filter((p) => {
+    const key =
+      typeof p.$ref === "string" ? p.$ref : `${p.in ?? ""}:${p.name ?? ""}:${p.type ?? ""}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function isXComponentRef(param: ParameterObject): boolean {

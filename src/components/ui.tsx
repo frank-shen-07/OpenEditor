@@ -71,16 +71,19 @@ export function TextArea({
   value,
   onChange,
   rows = 3,
+  readOnly = false,
 }: {
   value: string;
   onChange: (v: string) => void;
   rows?: number;
+  readOnly?: boolean;
 }) {
   return (
     <textarea
       className="input textarea"
       value={value}
       rows={rows}
+      readOnly={readOnly}
       onChange={(e) => onChange(e.target.value)}
     />
   );

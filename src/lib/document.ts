@@ -2,6 +2,7 @@ import { load } from "js-yaml";
 import type { OpenAPIDocument } from "../types";
 import { normalizeDocument } from "./normalize";
 import { serializeDocument } from "./exportDocument";
+import { buildExportYaml, isPreserveImport } from "./preserveImport";
 
 export function parseDocument(text: string): OpenAPIDocument {
   const trimmed = text.trim();
@@ -27,12 +28,15 @@ export function serializeToYaml(doc: OpenAPIDocument): string {
   return serializeDocument(doc);
 }
 
-/** Prefer preserved import text; fall back to serializing the document object. */
+/** Prefer preserved import text; append only additive edits when in preserve mode. */
 export function getYamlForDisplay(
   doc: OpenAPIDocument,
   sourceYaml: string | null,
   useCanonicalYaml: boolean
 ): string {
+  if (sourceYaml && (isPreserveImport(doc) || !useCanonicalYaml)) {
+    return buildExportYaml(sourceYaml, doc);
+  }
   if (!useCanonicalYaml && sourceYaml) return sourceYaml;
   return serializeToYaml(doc);
 }
@@ -40,10 +44,17 @@ export function getYamlForDisplay(
 export function downloadYaml(
   doc: OpenAPIDocument,
   filename?: string,
-  options?: { sourceYaml?: string | null; useCanonicalYaml?: boolean }
+  options?: {
+    sourceYaml?: string | null;
+    useCanonicalYaml?: boolean;
+    preserveImport?: boolean;
+  }
 ) {
   const useCanonical = options?.useCanonicalYaml ?? true;
-  const text = getYamlForDisplay(doc, options?.sourceYaml ?? null, useCanonical);
+  const text =
+    options?.sourceYaml && (options.preserveImport || !useCanonical)
+      ? buildExportYaml(options.sourceYaml, doc)
+      : getYamlForDisplay(doc, options?.sourceYaml ?? null, useCanonical);
   const name =
     filename ??
     `${(doc.info?.title ?? "openapi").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "openapi"}.yaml`;

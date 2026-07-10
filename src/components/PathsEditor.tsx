@@ -8,6 +8,7 @@ import {
   type TagObject,
 } from "../types";
 import { getAllTagNames, groupOperationsByTag } from "../lib/paths";
+import { isImportedPath } from "../lib/preserveImport";
 import { isOperationSecured } from "../lib/security";
 import { Chevron, EmptyState, Field, LockIcon, MethodBadge, Select } from "./ui";
 import { OperationEditor } from "./OperationEditor";
@@ -26,9 +27,11 @@ const METHOD_OPTIONS = HTTP_METHODS.map((m) => ({ value: m, label: m.toUpperCase
 export function PathsEditor({
   doc,
   onChange,
+  preserveImport = false,
 }: {
   doc: OpenAPIDocument;
   onChange: (doc: OpenAPIDocument) => void;
+  preserveImport?: boolean;
 }) {
   const paths = doc.paths ?? {};
   const tagGroups = useMemo(() => groupOperationsByTag(doc), [doc]);
@@ -55,10 +58,12 @@ export function PathsEditor({
   };
 
   const setTags = (next: TagObject[]) => {
+    if (preserveImport) return;
     onChange({ ...doc, tags: next });
   };
 
   const updateTagDescription = (tagName: string, description: string) => {
+    if (preserveImport) return;
     const tags = doc.tags ?? [];
     const idx = tags.findIndex((t) => t.name === tagName);
     if (idx >= 0) {
@@ -71,6 +76,7 @@ export function PathsEditor({
   };
 
   const renameTag = (oldName: string, newName: string) => {
+    if (preserveImport) return;
     const trimmed = newName.trim();
     if (!trimmed || trimmed === oldName) return;
     if ((doc.tags ?? []).some((t) => t.name === trimmed)) return;
@@ -109,6 +115,7 @@ export function PathsEditor({
   };
 
   const removeTag = (tagName: string) => {
+    if (preserveImport) return;
     setTags((doc.tags ?? []).filter((t) => t.name !== tagName));
     setOpenTags((prev) => {
       const next = new Set(prev);
@@ -177,6 +184,7 @@ export function PathsEditor({
   };
 
   const addOperation = (path: string, method: HttpMethod) => {
+    if (preserveImport && isImportedPath(doc, path)) return;
     const item = paths[path] ?? {};
     if (item[method]) {
       setOpenOps((prev) => new Set(prev).add(opKey({ path, method })));
@@ -188,6 +196,7 @@ export function PathsEditor({
   };
 
   const removeOperation = (path: string, method: HttpMethod) => {
+    if (preserveImport && isImportedPath(doc, path)) return;
     const item = { ...paths[path] };
     delete item[method];
     const nextPaths = { ...paths, [path]: item };
@@ -203,6 +212,7 @@ export function PathsEditor({
   };
 
   const updateOperation = (path: string, method: HttpMethod, op: OperationObject) => {
+    if (preserveImport && isImportedPath(doc, path)) return;
     const item = paths[path] ?? {};
     setPaths({ ...paths, [path]: { ...item, [method]: op } });
   };
@@ -442,6 +452,7 @@ export function PathsEditor({
                               key={key}
                               method={method}
                               operation={operation}
+                              readOnly={preserveImport && isImportedPath(doc, path)}
                               onChange={(op) => updateOperation(path, method, op)}
                             />
                           </div>

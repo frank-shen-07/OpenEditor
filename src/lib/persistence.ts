@@ -105,24 +105,38 @@ export function useDocumentPersistence(user: { id: string } | null) {
 
   const removeDocument = useCallback(
     async (id: string) => {
-      if (documents.length <= 1) return null;
       setReady(false);
       await deleteDocument(id);
       const list = await listDocuments();
       setDocuments(list);
+      if (list.length === 0 && user) {
+        const document = await ensureDefaultDocument(user.id);
+        setActiveId(document.id);
+        setSaveStatus("saved");
+        setReady(true);
+        return {
+          doc: document.content,
+          baseline: clone(document.content),
+          sourceYaml: document.sourceYaml,
+        };
+      }
       if (activeIdRef.current === id && list.length > 0) {
         return selectDocument(list[0].id);
       }
       setReady(true);
       return null;
     },
-    [documents.length, selectDocument]
+    [selectDocument, user]
   );
 
   const queueSave = useCallback(
     (
       doc: OpenAPIDocument,
-      meta?: { sourceYaml?: string | null; useCanonicalYaml?: boolean }
+      meta?: {
+        sourceYaml?: string | null;
+        useCanonicalYaml?: boolean;
+        preserveImport?: boolean;
+      }
     ) => {
       if (!user || !ready || activeIdRef.current === null) return;
       latestDoc.current = doc;
@@ -130,6 +144,7 @@ export function useDocumentPersistence(user: { id: string } | null) {
       if (meta?.useCanonicalYaml !== undefined) {
         latestUseCanonicalYaml.current = meta.useCanonicalYaml;
       }
+      const preserveImport = meta?.preserveImport ?? false;
       if (saveTimer.current) clearTimeout(saveTimer.current);
       setSaveStatus("saving");
       saveTimer.current = setTimeout(async () => {
@@ -138,10 +153,11 @@ export function useDocumentPersistence(user: { id: string } | null) {
         if (!user || !ready || id === null || !payload) return;
         try {
           const title = payload.info?.title?.trim() || "Untitled API";
+          const keepSourceYaml = preserveImport || !latestUseCanonicalYaml.current;
           const document = await updateDocument(id, {
             title,
             content: payload,
-            sourceYaml: latestUseCanonicalYaml.current ? null : latestSourceYaml.current,
+            sourceYaml: keepSourceYaml ? latestSourceYaml.current : null,
           });
           setDocuments((prev) =>
             prev.map((d) =>

@@ -8,14 +8,19 @@ import type {
   SchemaObject,
   ServerObject,
 } from "../types";
-import { HTTP_METHODS } from "../types";
+import { HTTP_METHODS, type HttpMethod } from "../types";
+import {
+  dedupeParameters,
+  METHODS_WITHOUT_BODY,
+  normalizePathsInPlace,
+  swagger2Servers,
+} from "./normalize";
 import {
   getSpecVersion,
   OPENEDITOR_KEY,
   tagSpecVersion,
   type SpecVersion,
 } from "./specVersion";
-import { normalizePathsInPlace, swagger2Servers } from "./normalize";
 
 type Json = Record<string, unknown>;
 
@@ -55,7 +60,7 @@ export function exportSwagger2(doc: OpenAPIDocument): Json {
       for (const method of HTTP_METHODS) {
         const op = pathItem[method];
         if (op && typeof op === "object") {
-          pathItem[method] = operationToSwagger2(op as OperationObject);
+          pathItem[method] = operationToSwagger2(op as OperationObject, method as HttpMethod);
         }
       }
     }
@@ -160,16 +165,23 @@ function serversToSwagger2Fields(servers: ServerObject[]): {
   }
 }
 
-function operationToSwagger2(op: OperationObject): OperationObject {
+function operationToSwagger2(op: OperationObject, method: HttpMethod): OperationObject {
   const next = { ...op };
   const params = [...(op.parameters ?? [])];
 
-  if (op.requestBody && !params.some((p) => p.in === "body" || isBodyRef(p))) {
+  if (
+    op.requestBody &&
+    !METHODS_WITHOUT_BODY.has(method) &&
+    !params.some((p) => p.in === "body" || isBodyRef(p))
+  ) {
     params.push(requestBodyToBodyParam(op.requestBody));
   }
 
   delete next.requestBody;
-  next.parameters = params.length > 0 ? params.map((p) => paramToSwagger2(p)) : undefined;
+  next.parameters =
+    params.length > 0
+      ? dedupeParameters(params.map((p) => paramToSwagger2(p)))
+      : undefined;
 
   if (next.responses) {
     const responses: Record<string, ResponseObject> = {};

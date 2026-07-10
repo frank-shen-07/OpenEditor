@@ -435,7 +435,34 @@ code.mono {
   overflow: auto;
 }
 
+.documents-menu-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 240px;
+  overflow: auto;
+}
+
+.documents-menu-row {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.documents-menu-delete {
+  flex-shrink: 0;
+  align-self: center;
+  opacity: 0.65;
+}
+
+.documents-menu-delete:hover {
+  opacity: 1;
+  color: #ff5f5f;
+}
+
 .documents-menu-item {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1302,6 +1329,35 @@ code.mono {
   color: var(--text-secondary);
   background: var(--bg-elevated);
   border-bottom: 1px solid var(--border-subtle);
+}
+
+.preserve-import-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin: 0;
+  padding: 10px 20px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.preserve-import-banner p {
+  margin: 0;
+}
+
+.imported-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  background: var(--bg-page);
+  padding: 2px 6px;
+  border-radius: 4px;
 }
 
 .yaml-toolbar {

@@ -19,6 +19,7 @@ export function YamlView({
   baselineDoc,
   sourceYaml,
   useCanonicalYaml,
+  preserveImport,
   onRawChange,
   onUpdateBaseline,
 }: {
@@ -26,6 +27,7 @@ export function YamlView({
   baselineDoc: OpenAPIDocument;
   sourceYaml: string | null;
   useCanonicalYaml: boolean;
+  preserveImport: boolean;
   onRawChange: (text: string, doc: OpenAPIDocument) => void;
   onUpdateBaseline: () => void;
 }) {
@@ -76,16 +78,20 @@ export function YamlView({
 
   return (
     <div className="yaml-view">
-      {!useCanonicalYaml && sourceYaml && mode === "edit" && (
+      {preserveImport && sourceYaml && mode === "edit" && (
         <p className="yaml-preserve-notice">
-          Showing imported file verbatim (comments and formatting preserved).
-          Editing the visual editor exports as {specVersionLabel(getSpecVersion(doc))}.
+          Showing your imported file unchanged. New routes and schemas are appended on download
+          only — nothing in the original file is rewritten.
         </p>
       )}
-      {useCanonicalYaml && mode === "edit" && (
+      {!preserveImport && !useCanonicalYaml && sourceYaml && mode === "edit" && (
         <p className="yaml-preserve-notice">
-          Exported as {specVersionLabel(getSpecVersion(doc))}. Use Import to preserve original
-          comments and formatting from a file.
+          Showing imported file verbatim (comments and formatting preserved).
+        </p>
+      )}
+      {!preserveImport && useCanonicalYaml && mode === "edit" && (
+        <p className="yaml-preserve-notice">
+          Exported as {specVersionLabel(getSpecVersion(doc))}.
         </p>
       )}
       <div className="yaml-toolbar">
