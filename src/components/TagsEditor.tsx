@@ -48,7 +48,6 @@ export function TagsEditor({
                     <TextInput
                       value={tag.name ?? ""}
                       onChange={(v) => updateTag(i, { name: v })}
-                      placeholder="pets"
                       mono
                     />
                   </Field>
@@ -56,7 +55,6 @@ export function TagsEditor({
                     <TextInput
                       value={tag.description ?? ""}
                       onChange={(v) => updateTag(i, { description: v })}
-                      placeholder="Operations about pets"
                     />
                   </Field>
                   <RemoveButton onClick={() => setTags(tags.filter((_, j) => j !== i))} />

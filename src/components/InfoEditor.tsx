@@ -24,7 +24,6 @@ export function InfoEditor({
               type="text"
               value={info.title ?? ""}
               onChange={(e) => setInfo({ title: e.target.value })}
-              placeholder="OpenAPI file editor"
             />
           </h2>
           <span className="version">
@@ -33,7 +32,6 @@ export function InfoEditor({
               type="text"
               value={info.version ?? ""}
               onChange={(e) => setInfo({ version: e.target.value })}
-              placeholder="1.0.0"
             />
           </span>
           <span className="openapi-version">
@@ -43,7 +41,6 @@ export function InfoEditor({
               type="text"
               value={doc.openapi ?? ""}
               onChange={(e) => onChange({ ...doc, openapi: e.target.value })}
-              placeholder="3.0.3"
             />
           </span>
         </hgroup>
@@ -53,7 +50,6 @@ export function InfoEditor({
         <TextArea
           value={info.description ?? ""}
           onChange={(v) => setInfo({ description: v })}
-          placeholder="Edit anything here or import your own document."
           rows={4}
         />
       </div>

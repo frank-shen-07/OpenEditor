@@ -45,14 +45,9 @@ export function PathsEditor({
   const [newTagName, setNewTagName] = useState("");
   const [newTagDesc, setNewTagDesc] = useState("");
 
-  const availableTags = useMemo(
-    () => (doc.tags ?? []).map((t) => t.name ?? "").filter(Boolean),
-    [doc.tags]
-  );
-
   const tagSelectOptions = [
     { value: "", label: "(no tag)" },
-    ...availableTags.map((t) => ({ value: t, label: t })),
+    ...(doc.tags ?? []).map((t) => t.name ?? "").filter(Boolean).map((t) => ({ value: t, label: t })),
   ];
 
   const setPaths = (next: Record<string, PathItemObject>) => {
@@ -227,7 +222,6 @@ export function PathsEditor({
                   className="input mono"
                   autoFocus
                   type="text"
-                  placeholder="/pets/{petId}"
                   value={newPathDraft}
                   onChange={(e) => setNewPathDraft(e.target.value)}
                   onKeyDown={(e) => {
@@ -273,7 +267,6 @@ export function PathsEditor({
                   className="input mono"
                   autoFocus
                   type="text"
-                  placeholder="orders"
                   value={newTagName}
                   onChange={(e) => setNewTagName(e.target.value)}
                   onKeyDown={(e) => {
@@ -286,7 +279,6 @@ export function PathsEditor({
                 <input
                   className="input"
                   type="text"
-                  placeholder="Store orders"
                   value={newTagDesc}
                   onChange={(e) => setNewTagDesc(e.target.value)}
                   onKeyDown={(e) => {
@@ -366,7 +358,6 @@ export function PathsEditor({
                         <input
                           className="input tag-desc-inline"
                           type="text"
-                          placeholder="What endpoints belong in this group?"
                           value={group.description ?? ""}
                           onChange={(e) => updateTagDescription(group.name, e.target.value)}
                         />
@@ -451,7 +442,6 @@ export function PathsEditor({
                               key={key}
                               method={method}
                               operation={operation}
-                              availableTags={availableTags}
                               onChange={(op) => updateOperation(path, method, op)}
                             />
                           </div>

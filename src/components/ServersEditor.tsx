@@ -47,7 +47,6 @@ export function ServersEditor({
                   <TextInput
                     value={server.url ?? ""}
                     onChange={(v) => updateServer(i, { url: v })}
-                    placeholder="https://api.example.com/v1"
                     mono
                   />
                 </Field>
@@ -55,7 +54,6 @@ export function ServersEditor({
                   <TextInput
                     value={server.description ?? ""}
                     onChange={(v) => updateServer(i, { description: v })}
-                    placeholder="Production server"
                   />
                 </Field>
                 <RemoveButton onClick={() => setServers(servers.filter((_, j) => j !== i))} />

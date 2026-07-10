@@ -84,6 +84,7 @@ export interface RequestBodyObject {
 
 export interface MediaTypeObject {
   schema?: SchemaObject;
+  example?: unknown;
   [key: string]: unknown;
 }
 

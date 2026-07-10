@@ -21,12 +21,10 @@ export function Field({
 export function TextInput({
   value,
   onChange,
-  placeholder,
   mono,
 }: {
   value: string;
   onChange: (v: string) => void;
-  placeholder?: string;
   mono?: boolean;
 }) {
   return (
@@ -34,7 +32,6 @@ export function TextInput({
       className={`input${mono ? " mono" : ""}`}
       type="text"
       value={value}
-      placeholder={placeholder}
       onChange={(e) => onChange(e.target.value)}
     />
   );
@@ -43,19 +40,16 @@ export function TextInput({
 export function TextArea({
   value,
   onChange,
-  placeholder,
   rows = 3,
 }: {
   value: string;
   onChange: (v: string) => void;
-  placeholder?: string;
   rows?: number;
 }) {
   return (
     <textarea
       className="input textarea"
       value={value}
-      placeholder={placeholder}
       rows={rows}
       onChange={(e) => onChange(e.target.value)}
     />

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { OpenAPIDocument, SchemaObject } from "../types";
 import { Chevron, EmptyState, Field } from "./ui";
-import { SchemaJsonEditor } from "./OperationEditor";
+import { JsonEditor, toJsonText } from "./JsonEditor";
 
 export function SchemasEditor({
   doc,
@@ -108,7 +108,6 @@ export function SchemasEditor({
                   className="input mono"
                   autoFocus
                   type="text"
-                  placeholder="Pet"
                   value={nameDraft}
                   onChange={(e) => setNameDraft(e.target.value)}
                   onKeyDown={(e) => {
@@ -188,11 +187,11 @@ export function SchemasEditor({
                         Referenced as{" "}
                         <code className="mono">#/components/schemas/{name}</code>
                       </p>
-                      <Field label="Schema Definition (JSON)">
-                        <SchemaJsonEditor
+                      <Field label="Schema (JSON)">
+                        <JsonEditor
                           key={`schema-${name}`}
-                          value={JSON.stringify(schema, null, 2)}
-                          onValid={(s) => setSchemas({ ...schemas, [name]: s })}
+                          value={toJsonText(schema)}
+                          onValid={(s) => setSchemas({ ...schemas, [name]: s as SchemaObject })}
                         />
                       </Field>
                     </div>

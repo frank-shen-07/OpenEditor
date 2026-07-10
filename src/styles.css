@@ -1138,11 +1138,6 @@ code.mono {
   box-shadow: none;
 }
 
-.input::placeholder {
-  color: var(--text-primary);
-  opacity: 0.5;
-}
-
 .input-error {
   border-color: #ff5f5f;
 }
@@ -1275,10 +1270,35 @@ code.mono {
   background: var(--bg-elevated);
 }
 
-.schema-json-editor {
+.json-editor {
   display: flex;
   flex-direction: column;
   width: 100%;
+  gap: 6px;
+}
+
+.json-editor-textarea {
+  width: 100%;
+  min-height: 120px;
+  padding: 12px 14px;
+  background: var(--bg-textarea);
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  color: var(--text-primary);
+  line-height: 1.6;
+  font-size: 13px;
+  resize: vertical;
+  tab-size: 2;
+}
+
+.json-editor-textarea:focus {
+  outline: none;
+  border-color: var(--link);
+}
+
+.json-editor .error-text {
+  font-size: 12px;
+  color: #ff5f5f;
 }
 
 /* ── Responsive ─────────────────────────────────────────────────────────── */

@@ -6,6 +6,7 @@ import {
   getParameterType,
   METHODS_WITHOUT_BODY,
 } from "../lib/normalize";
+import { JsonEditor, toJsonText } from "./JsonEditor";
 import {
   Checkbox,
   EmptyState,
@@ -32,12 +33,10 @@ const COMMON_STATUS_CODES = ["200", "201", "204", "400", "401", "403", "404", "4
 export function OperationEditor({
   operation,
   method,
-  availableTags,
   onChange,
 }: {
   operation: OperationObject;
   method: HttpMethod;
-  availableTags: string[];
   onChange: (op: OperationObject) => void;
 }) {
   const patch = (p: Partial<OperationObject>) => onChange({ ...operation, ...p });
@@ -45,6 +44,7 @@ export function OperationEditor({
   const parameters = getDisplayParameters(operation.parameters);
   const responses = operation.responses ?? {};
   const showRequestBody = !METHODS_WITHOUT_BODY.has(method);
+  const requestMedia = operation.requestBody?.content?.["application/json"];
 
   const updateParam = (index: number, p: Partial<ParameterObject>) => {
     const all = operation.parameters ?? [];
@@ -115,17 +115,23 @@ export function OperationEditor({
     patch({ responses: next });
   };
 
-  const requestBodyJson = getRequestBodySchemaText(operation);
+  const updateRequestBodyMedia = (media: MediaTypeObject) => {
+    patch({
+      requestBody: {
+        ...operation.requestBody,
+        content: {
+          ...(operation.requestBody?.content ?? {}),
+          "application/json": media,
+        },
+      },
+    });
+  };
 
   return (
     <div className="operation-editor">
       <div className="form-grid">
         <Field label="Summary">
-          <TextInput
-            value={operation.summary ?? ""}
-            onChange={(v) => patch({ summary: v })}
-            placeholder="List all pets"
-          />
+          <TextInput value={operation.summary ?? ""} onChange={(v) => patch({ summary: v })} />
         </Field>
         <Field label="Tags" hint="Comma-separated">
           <TextInput
@@ -138,7 +144,6 @@ export function OperationEditor({
                   .filter(Boolean),
               })
             }
-            placeholder={availableTags.slice(0, 3).join(", ") || "pets, orders"}
             mono
           />
         </Field>
@@ -147,7 +152,6 @@ export function OperationEditor({
         <TextArea
           value={operation.description ?? ""}
           onChange={(v) => patch({ description: v })}
-          placeholder="Longer explanation of this operation"
           rows={2}
         />
       </Field>
@@ -180,7 +184,6 @@ export function OperationEditor({
                     <TextInput
                       value={param.name ?? ""}
                       onChange={(v) => updateParam(i, { name: v })}
-                      placeholder="simulationId"
                       mono
                     />
                   </Field>
@@ -205,7 +208,6 @@ export function OperationEditor({
                     <TextInput
                       value={param.description ?? ""}
                       onChange={(v) => updateParam(i, { description: v })}
-                      placeholder="What this parameter is for"
                     />
                   </Field>
                   <Checkbox
@@ -244,7 +246,12 @@ export function OperationEditor({
                   patch({
                     requestBody: {
                       required: true,
-                      content: { "application/json": { schema: { type: "object" } } },
+                      content: {
+                        "application/json": {
+                          schema: { type: "object", properties: {} },
+                          example: {},
+                        },
+                      },
                     },
                   })
                 }
@@ -262,7 +269,6 @@ export function OperationEditor({
                     onChange={(v) =>
                       patch({ requestBody: { ...operation.requestBody, description: v } })
                     }
-                    placeholder="Pet to add to the store"
                   />
                 </Field>
                 <Checkbox
@@ -273,24 +279,26 @@ export function OperationEditor({
                   label="Required"
                 />
               </div>
-              <Field
-                label="Schema (JSON)"
-                hint='Schema for application/json content, e.g. {"$ref": "#/components/schemas/Pet"}'
-              >
-                <SchemaJsonEditor
-                  value={requestBodyJson}
+              <Field label="Example (JSON)" hint="Plain JSON request body, e.g. {&quot;studentId&quot;: &quot;z5555555&quot;}">
+                <JsonEditor
+                  value={toJsonText(requestMedia?.example)}
+                  requireObject
+                  onValid={(example) =>
+                    updateRequestBodyMedia({
+                      ...(requestMedia ?? {}),
+                      example: example as Record<string, unknown>,
+                    })
+                  }
+                />
+              </Field>
+              <Field label="Schema (JSON)" hint="JSON Schema definition for validation">
+                <JsonEditor
+                  value={toJsonText(requestMedia?.schema)}
+                  requireObject
                   onValid={(schema) =>
-                    patch({
-                      requestBody: {
-                        ...operation.requestBody,
-                        content: {
-                          ...(operation.requestBody?.content ?? {}),
-                          "application/json": {
-                            ...((operation.requestBody?.content ?? {})["application/json"] ?? {}),
-                            schema,
-                          },
-                        },
-                      },
+                    updateRequestBodyMedia({
+                      ...(requestMedia ?? {}),
+                      schema: schema as MediaTypeObject["schema"],
                     })
                   }
                 />
@@ -321,15 +329,11 @@ export function OperationEditor({
                     <TextInput
                       value={resp.description ?? ""}
                       onChange={(v) => updateResponse(code, { description: v })}
-                      placeholder="Successful response"
                     />
                   </Field>
                   <RemoveButton onClick={() => removeResponse(code)} />
                 </div>
-                <ResponseSchemaEditor
-                  response={resp}
-                  onChange={(r) => updateResponse(code, r)}
-                />
+                <ResponseJsonEditor response={resp} onChange={(r) => updateResponse(code, r)} />
               </div>
             ))}
           </div>
@@ -339,7 +343,6 @@ export function OperationEditor({
   );
 }
 
-/** Text input that only commits the rename on blur/Enter to avoid key churn while typing. */
 function StatusCodeInput({ code, onRename }: { code: string; onRename: (v: string) => void }) {
   const [draft, setDraft] = useState(code);
 
@@ -365,12 +368,7 @@ function StatusCodeInput({ code, onRename }: { code: string; onRename: (v: strin
   );
 }
 
-function getRequestBodySchemaText(operation: OperationObject): string {
-  const schema = operation.requestBody?.content?.["application/json"]?.schema;
-  return schema ? JSON.stringify(schema, null, 2) : "";
-}
-
-function ResponseSchemaEditor({
+function ResponseJsonEditor({
   response,
   onChange,
 }: {
@@ -378,91 +376,34 @@ function ResponseSchemaEditor({
   onChange: (r: Partial<ResponseObject>) => void;
 }) {
   const legacySchema = (response as ResponseObject & { schema?: unknown }).schema;
-  const media: MediaTypeObject | undefined =
+  const media: MediaTypeObject =
     response.content?.["application/json"] ??
-    (legacySchema ? { schema: legacySchema as MediaTypeObject["schema"] } : undefined);
-  const hasSchema = media?.schema !== undefined;
+    (legacySchema ? { schema: legacySchema as MediaTypeObject["schema"] } : {});
 
-  if (!hasSchema) {
-    return (
-      <button
-        className="btn btn-sm self-start"
-        type="button"
-        onClick={() =>
-          onChange({
-            content: {
-              ...(response.content ?? {}),
-              "application/json": { schema: { type: "object" } },
-            },
-          })
-        }
-      >
-        + Add JSON Schema
-      </button>
-    );
-  }
-
-  return (
-    <Field label="Schema (JSON)" hint="Schema for application/json content">
-      <SchemaJsonEditor
-        value={JSON.stringify(media!.schema, null, 2)}
-        onValid={(schema) =>
-          onChange({
-            content: {
-              ...(response.content ?? {}),
-              "application/json": { ...media, schema },
-            },
-          })
-        }
-      />
-    </Field>
-  );
-}
-
-/**
- * Free-form JSON editor for schema fragments. Keeps local draft state so the
- * user can type invalid intermediate JSON; only valid JSON is propagated.
- */
-export function SchemaJsonEditor({
-  value,
-  onValid,
-}: {
-  value: string;
-  onValid: (schema: Record<string, unknown>) => void;
-}) {
-  const [draft, setDraft] = useState(value);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setDraft(value);
-    setError(null);
-  }, [value]);
-
-  const handleChange = (text: string) => {
-    setDraft(text);
-    try {
-      const parsed = JSON.parse(text);
-      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-        setError("Schema must be a JSON object");
-        return;
-      }
-      setError(null);
-      onValid(parsed as Record<string, unknown>);
-    } catch (e) {
-      setError((e as Error).message);
-    }
+  const updateMedia = (patch: Partial<MediaTypeObject>) => {
+    const next = { ...media, ...patch };
+    const content = { ...(response.content ?? {}), "application/json": next };
+    const cleaned = { ...response, content } as ResponseObject & { schema?: unknown };
+    delete cleaned.schema;
+    onChange(cleaned);
   };
 
   return (
-    <div className="schema-json-editor">
-      <textarea
-        className={`input textarea mono${error ? " input-error" : ""}`}
-        value={draft}
-        rows={Math.min(14, Math.max(4, draft.split("\n").length + 1))}
-        onChange={(e) => handleChange(e.target.value)}
-        spellCheck={false}
-      />
-      {error && <span className="error-text">{error}</span>}
-    </div>
+    <>
+      <Field label="Example (JSON)" hint="Plain JSON response body">
+        <JsonEditor
+          value={toJsonText(media.example)}
+          requireObject
+          onValid={(example) => updateMedia({ example: example as Record<string, unknown> })}
+        />
+      </Field>
+      <Field label="Schema (JSON)" hint="JSON Schema definition for validation">
+        <JsonEditor
+          value={toJsonText(media.schema)}
+          requireObject
+          onValid={(schema) => updateMedia({ schema: schema as MediaTypeObject["schema"] })}
+        />
+      </Field>
+    </>
   );
 }

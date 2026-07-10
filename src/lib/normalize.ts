@@ -85,7 +85,7 @@ function normalizeOperation(op: OperationObject, doc: Json): OperationObject {
   if (next.responses) {
     const responses: Record<string, ResponseObject> = {};
     for (const [code, resp] of Object.entries(next.responses)) {
-      responses[String(code)] = normalizeResponse(resp as ResponseObject & Json);
+      responses[String(code)] = normalizeResponse(resp as ResponseObject & Json, doc);
     }
     next.responses = responses;
   }
@@ -137,36 +137,103 @@ function bodyParamToRequestBody(param: ParameterObject & Json, doc: Json): Reque
     (typeof param.type === "string" ? { type: param.type } : { type: "object" });
 
   const resolvedSchema = resolveSchemaRefs(schema, doc);
+  const example = buildExampleFromSchema(resolvedSchema);
 
   return {
     description: param.description,
     required: param.required ?? true,
     content: {
-      "application/json": { schema: resolvedSchema },
+      "application/json": {
+        schema: resolvedSchema,
+        ...(example ? { example } : {}),
+      },
     },
   };
 }
 
-function resolveSchemaRefs(schema: SchemaObject, doc: Json): SchemaObject {
+function resolveSchemaRefs(schema: SchemaObject, doc: Json, seen = new Set<string>()): SchemaObject {
   if (typeof schema.$ref === "string") {
+    if (seen.has(schema.$ref)) return { type: "object" };
+    seen.add(schema.$ref);
     const resolved = resolveRef(schema.$ref, doc);
     if (resolved && typeof resolved === "object") {
-      return resolveSchemaRefs(resolved as SchemaObject, doc);
+      return resolveSchemaRefs(resolved as SchemaObject, doc, seen);
     }
+    return schema;
   }
-  return schema;
+
+  const next: SchemaObject = { ...schema };
+
+  if (next.properties && typeof next.properties === "object") {
+    const properties: Record<string, SchemaObject> = {};
+    for (const [key, value] of Object.entries(next.properties)) {
+      properties[key] = resolveSchemaRefs(value as SchemaObject, doc, new Set(seen));
+    }
+    next.properties = properties;
+  }
+
+  if (next.items && typeof next.items === "object") {
+    next.items = resolveSchemaRefs(next.items as SchemaObject, doc, new Set(seen));
+  }
+
+  if (Array.isArray(next.allOf)) {
+    next.allOf = next.allOf.map((s) => resolveSchemaRefs(s as SchemaObject, doc, new Set(seen)));
+  }
+
+  return next;
 }
 
-function normalizeResponse(resp: ResponseObject & Json): ResponseObject {
-  if (resp.content) return resp;
+/** Build a plain example object from schema `example` fields (Swagger 2.0 style). */
+export function buildExampleFromSchema(schema: SchemaObject): Record<string, unknown> | undefined {
+  if (schema.example !== undefined && typeof schema.example === "object" && !Array.isArray(schema.example)) {
+    return schema.example as Record<string, unknown>;
+  }
+
+  if (schema.type === "object" && schema.properties) {
+    const example: Record<string, unknown> = {};
+    let hasValue = false;
+    for (const [key, prop] of Object.entries(schema.properties)) {
+      const p = prop as SchemaObject;
+      if (p.example !== undefined) {
+        example[key] = p.example;
+        hasValue = true;
+      }
+    }
+    return hasValue ? example : undefined;
+  }
+
+  return undefined;
+}
+
+function normalizeResponse(resp: ResponseObject & Json, doc?: Json): ResponseObject {
+  if (resp.content) {
+    const content = { ...resp.content };
+    for (const [mediaType, media] of Object.entries(content)) {
+      if (!media?.schema || !doc) continue;
+      const resolved = resolveSchemaRefs(media.schema as SchemaObject, doc);
+      const example = buildExampleFromSchema(resolved);
+      content[mediaType] = {
+        ...media,
+        schema: resolved,
+        ...(example && !media.example ? { example } : {}),
+      };
+    }
+    return { ...resp, content };
+  }
 
   const legacySchema = resp.schema as SchemaObject | undefined;
   if (!legacySchema) return resp;
 
+  const resolved = doc ? resolveSchemaRefs(legacySchema, doc) : legacySchema;
+  const example = buildExampleFromSchema(resolved);
+
   const next = { ...resp };
   delete (next as Json).schema;
   next.content = {
-    "application/json": { schema: legacySchema },
+    "application/json": {
+      schema: resolved,
+      ...(example ? { example } : {}),
+    },
   };
   return next;
 }
