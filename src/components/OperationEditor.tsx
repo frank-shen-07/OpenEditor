@@ -6,7 +6,7 @@ import {
   getParameterType,
   METHODS_WITHOUT_BODY,
 } from "../lib/normalize";
-import { JsonEditor, toJsonText } from "./JsonEditor";
+import { ExampleSchemaEditor } from "./ExampleSchemaEditor";
 import {
   Checkbox,
   EmptyState,
@@ -279,30 +279,24 @@ export function OperationEditor({
                   label="Required"
                 />
               </div>
-              <Field label="Example (JSON)" hint="Plain JSON request body, e.g. {&quot;studentId&quot;: &quot;z5555555&quot;}">
-                <JsonEditor
-                  value={toJsonText(requestMedia?.example)}
-                  requireObject
-                  onValid={(example) =>
-                    updateRequestBodyMedia({
-                      ...(requestMedia ?? {}),
-                      example: example as Record<string, unknown>,
-                    })
-                  }
-                />
-              </Field>
-              <Field label="Schema (JSON)" hint="JSON Schema definition for validation">
-                <JsonEditor
-                  value={toJsonText(requestMedia?.schema)}
-                  requireObject
-                  onValid={(schema) =>
-                    updateRequestBodyMedia({
-                      ...(requestMedia ?? {}),
-                      schema: schema as MediaTypeObject["schema"],
-                    })
-                  }
-                />
-              </Field>
+              <ExampleSchemaEditor
+                example={requestMedia?.example}
+                schema={requestMedia?.schema}
+                requireObject
+                hint="Paste a real request body from your API, e.g. {&quot;studentId&quot;: &quot;z5555555&quot;}"
+                onExampleChange={(example) =>
+                  updateRequestBodyMedia({
+                    ...(requestMedia ?? {}),
+                    example,
+                  })
+                }
+                onSchemaChange={(schema) =>
+                  updateRequestBodyMedia({
+                    ...(requestMedia ?? {}),
+                    schema,
+                  })
+                }
+              />
             </div>
           )}
         </div>
@@ -389,21 +383,13 @@ function ResponseJsonEditor({
   };
 
   return (
-    <>
-      <Field label="Example (JSON)" hint="Plain JSON response body">
-        <JsonEditor
-          value={toJsonText(media.example)}
-          requireObject
-          onValid={(example) => updateMedia({ example: example as Record<string, unknown> })}
-        />
-      </Field>
-      <Field label="Schema (JSON)" hint="JSON Schema definition for validation">
-        <JsonEditor
-          value={toJsonText(media.schema)}
-          requireObject
-          onValid={(schema) => updateMedia({ schema: schema as MediaTypeObject["schema"] })}
-        />
-      </Field>
-    </>
+    <ExampleSchemaEditor
+      example={media.example}
+      schema={media.schema}
+      requireObject={false}
+      hint="Paste a real response from your Express/NestJS backend"
+      onExampleChange={(example) => updateMedia({ example })}
+      onSchemaChange={(schema) => updateMedia({ schema })}
+    />
   );
 }

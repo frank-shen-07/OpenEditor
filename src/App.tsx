@@ -2,11 +2,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { OpenAPIDocument } from "./types";
 import { downloadYaml, parseDocument, clone } from "./lib/document";
 import { DEFAULT_DOCUMENT, SAMPLE_DOCUMENT } from "./lib/sample";
+import { useAuth } from "./context/AuthContext";
+import { useDocumentPersistence } from "./lib/persistence";
 import { InfoEditor } from "./components/InfoEditor";
 import { ServersEditor } from "./components/ServersEditor";
 import { PathsEditor } from "./components/PathsEditor";
 import { SchemasEditor } from "./components/SchemasEditor";
 import { YamlView } from "./components/YamlView";
+import { AuthPanel } from "./components/AuthPanel";
+import { DocumentsPanel } from "./components/DocumentsPanel";
 import { Chevron } from "./components/ui";
 
 type Theme = "dark" | "light";
@@ -18,19 +22,54 @@ function getInitialTheme(): Theme {
 }
 
 export default function App() {
+  const { user, loading: authLoading } = useAuth();
+  const persistence = useDocumentPersistence(user);
   const [doc, setDoc] = useState<OpenAPIDocument>(DEFAULT_DOCUMENT);
   const [baselineDoc, setBaselineDoc] = useState<OpenAPIDocument>(() => clone(DEFAULT_DOCUMENT));
   const [importError, setImportError] = useState<string | null>(null);
   const [yamlOpen, setYamlOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const loadedUserId = useRef<string | null>(null);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("openeditor-theme", theme);
   }, [theme]);
 
+  useEffect(() => {
+    if (authLoading) return;
+
+    if (!user) {
+      loadedUserId.current = null;
+      setDoc(DEFAULT_DOCUMENT);
+      setBaselineDoc(clone(DEFAULT_DOCUMENT));
+      return;
+    }
+
+    if (loadedUserId.current === user.id) return;
+    loadedUserId.current = user.id;
+
+    persistence.loadDocuments().then((result) => {
+      if (result) {
+        setDoc(result.doc);
+        setBaselineDoc(result.baseline);
+      }
+    });
+  }, [user, authLoading, persistence.loadDocuments]);
+
+  useEffect(() => {
+    if (user) {
+      persistence.queueSave(doc);
+    }
+  }, [doc, user, persistence.queueSave]);
+
   const toggleTheme = () => setTheme((t) => (t === "dark" ? "light" : "dark"));
+
+  const applyDocument = useCallback((next: OpenAPIDocument) => {
+    setDoc(next);
+    setBaselineDoc(clone(next));
+  }, []);
 
   const handleImport = useCallback((file: File) => {
     setImportError(null);
@@ -38,16 +77,14 @@ export default function App() {
     reader.onload = () => {
       try {
         const text = reader.result as string;
-        const imported = parseDocument(text);
-        setDoc(imported);
-        setBaselineDoc(clone(imported));
+        applyDocument(parseDocument(text));
       } catch (e) {
         setImportError((e as Error).message);
       }
     };
     reader.onerror = () => setImportError("Failed to read file");
     reader.readAsText(file);
-  }, []);
+  }, [applyDocument]);
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -59,6 +96,22 @@ export default function App() {
     e.preventDefault();
     const file = e.dataTransfer.files[0];
     if (file) handleImport(file);
+  };
+
+  const handleSelectDocument = async (id: string) => {
+    const result = await persistence.selectDocument(id);
+    if (result) applyDocument(result.doc);
+  };
+
+  const handleCreateDocument = async () => {
+    const fresh = clone(DEFAULT_DOCUMENT);
+    const id = await persistence.createDocument(fresh);
+    if (id) applyDocument(fresh);
+  };
+
+  const handleDeleteDocument = async (id: string) => {
+    const result = await persistence.deleteDocument(id);
+    if (result) applyDocument(result.doc);
   };
 
   return (
@@ -76,6 +129,17 @@ export default function App() {
               <span>OpenEditor</span>
             </a>
             <div className="topbar-actions">
+              {user && persistence.documents.length > 0 && (
+                <DocumentsPanel
+                  documents={persistence.documents}
+                  activeId={persistence.activeId}
+                  saveStatus={persistence.saveStatus}
+                  onSelect={handleSelectDocument}
+                  onCreate={handleCreateDocument}
+                  onDelete={handleDeleteDocument}
+                />
+              )}
+              <AuthPanel />
               <button
                 className="btn theme-toggle"
                 type="button"
@@ -102,8 +166,7 @@ export default function App() {
                 className="btn"
                 type="button"
                 onClick={() => {
-                  setDoc(SAMPLE_DOCUMENT);
-                  setBaselineDoc(clone(SAMPLE_DOCUMENT));
+                  applyDocument(SAMPLE_DOCUMENT);
                   setImportError(null);
                 }}
               >
