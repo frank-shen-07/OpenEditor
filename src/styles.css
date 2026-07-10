@@ -1061,6 +1061,11 @@ code.mono {
 }
 
 .yaml-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
   padding: 10px 16px;
   background: var(--bg-elevated);
   border-bottom: 1px solid var(--border-subtle);
@@ -1099,6 +1104,134 @@ code.mono {
   color: #ff5f5f;
   font-size: 12px;
   border-top: 1px solid #ff5f5f;
+}
+
+
+.yaml-toolbar-left,
+.yaml-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.yaml-mode-tabs {
+  display: inline-flex;
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.yaml-mode-tab {
+  padding: 6px 12px;
+  background: var(--bg-input);
+  border: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.yaml-mode-tab + .yaml-mode-tab {
+  border-left: 1px solid var(--border-default);
+}
+
+.yaml-mode-tab.is-active {
+  background: var(--link);
+  color: #fff;
+}
+
+.yaml-diff-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.yaml-diff-stat {
+  font-weight: 700;
+}
+
+.yaml-diff-stat-added {
+  color: #3ecf8e;
+}
+
+.yaml-diff-stat-removed {
+  color: #ff5f5f;
+}
+
+.yaml-diff-stat-none {
+  color: var(--text-muted);
+}
+
+.yaml-diff-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.yaml-diff-panel {
+  min-height: 400px;
+  max-height: 70vh;
+  overflow: auto;
+  background: var(--bg-textarea);
+}
+
+.yaml-diff-empty {
+  padding: 16px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.yaml-diff-pre {
+  margin: 0;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.yaml-diff-line {
+  display: flex;
+  width: 100%;
+}
+
+.yaml-diff-gutter {
+  flex: 0 0 28px;
+  padding: 0 8px;
+  text-align: center;
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.yaml-diff-text {
+  flex: 1;
+  padding-right: 16px;
+  white-space: pre;
+}
+
+.yaml-diff-line-added {
+  background: rgba(62, 207, 142, 0.15);
+}
+
+.yaml-diff-line-added .yaml-diff-gutter,
+.yaml-diff-line-added .yaml-diff-text {
+  color: #3ecf8e;
+}
+
+.yaml-diff-line-removed {
+  background: rgba(255, 95, 95, 0.15);
+}
+
+.yaml-diff-line-removed .yaml-diff-gutter,
+.yaml-diff-line-removed .yaml-diff-text {
+  color: #ff5f5f;
+}
+
+.yaml-diff-line-same .yaml-diff-text {
+  color: var(--text-primary);
 }
 
 /* ── Form elements ──────────────────────────────────────────────────────── */

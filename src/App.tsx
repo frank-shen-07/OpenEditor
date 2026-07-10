@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { OpenAPIDocument } from "./types";
-import { downloadYaml, parseDocument } from "./lib/document";
+import { downloadYaml, parseDocument, clone } from "./lib/document";
 import { DEFAULT_DOCUMENT, SAMPLE_DOCUMENT } from "./lib/sample";
 import { InfoEditor } from "./components/InfoEditor";
 import { ServersEditor } from "./components/ServersEditor";
@@ -19,6 +19,7 @@ function getInitialTheme(): Theme {
 
 export default function App() {
   const [doc, setDoc] = useState<OpenAPIDocument>(DEFAULT_DOCUMENT);
+  const [baselineDoc, setBaselineDoc] = useState<OpenAPIDocument>(() => clone(DEFAULT_DOCUMENT));
   const [importError, setImportError] = useState<string | null>(null);
   const [yamlOpen, setYamlOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
@@ -37,7 +38,9 @@ export default function App() {
     reader.onload = () => {
       try {
         const text = reader.result as string;
-        setDoc(parseDocument(text));
+        const imported = parseDocument(text);
+        setDoc(imported);
+        setBaselineDoc(clone(imported));
       } catch (e) {
         setImportError((e as Error).message);
       }
@@ -100,6 +103,7 @@ export default function App() {
                 type="button"
                 onClick={() => {
                   setDoc(SAMPLE_DOCUMENT);
+                  setBaselineDoc(clone(SAMPLE_DOCUMENT));
                   setImportError(null);
                 }}
               >
@@ -151,7 +155,12 @@ export default function App() {
           </button>
           {yamlOpen && (
             <div className="yaml-section-body">
-              <YamlView doc={doc} onChange={setDoc} />
+              <YamlView
+                doc={doc}
+                baselineDoc={baselineDoc}
+                onChange={setDoc}
+                onUpdateBaseline={() => setBaselineDoc(clone(doc))}
+              />
             </div>
           )}
         </section>
