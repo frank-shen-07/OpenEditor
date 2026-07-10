@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { OpenAPIDocument } from "../types";
-import { getYamlForDisplay, serializeToYaml } from "../lib/document";
+import { getYamlForDisplay } from "../lib/document";
 import { parseImport } from "../lib/preserveImport";
 import { buildYamlDiff } from "../lib/yamlDiff";
 
@@ -23,13 +23,20 @@ export function YamlView({
 }) {
   const [mode, setMode] = useState<ViewMode>("edit");
   const [hideUnchanged, setHideUnchanged] = useState(false);
-  const [draft, setDraft] = useState(() => getYamlForDisplay(doc, sourceYaml));
+  const [draft, setDraft] = useState(() =>
+    preserveImport && sourceYaml ? sourceYaml : getYamlForDisplay(doc, sourceYaml)
+  );
   const [error, setError] = useState<string | null>(null);
   const selfEdit = useRef(false);
 
-  const displayYaml = useMemo(
+  const exportYaml = useMemo(
     () => getYamlForDisplay(doc, sourceYaml),
     [doc, sourceYaml]
+  );
+
+  const editYaml = useMemo(
+    () => (preserveImport && sourceYaml ? sourceYaml : exportYaml),
+    [preserveImport, sourceYaml, exportYaml]
   );
 
   useEffect(() => {
@@ -37,18 +44,17 @@ export function YamlView({
       selfEdit.current = false;
       return;
     }
-    setDraft(displayYaml);
+    setDraft(editYaml);
     setError(null);
-  }, [displayYaml]);
+  }, [editYaml]);
 
-  const currentYaml = useMemo(() => getYamlForDisplay(doc, sourceYaml), [doc, sourceYaml]);
   const baselineYaml = useMemo(
-    () => (sourceYaml && preserveImport ? sourceYaml : serializeToYaml(baselineDoc)),
-    [baselineDoc, preserveImport, sourceYaml]
+    () => getYamlForDisplay(baselineDoc, sourceYaml),
+    [baselineDoc, sourceYaml]
   );
   const diff = useMemo(
-    () => buildYamlDiff(baselineYaml, currentYaml),
-    [baselineYaml, currentYaml]
+    () => buildYamlDiff(baselineYaml, exportYaml),
+    [baselineYaml, exportYaml]
   );
 
   const visibleLines = hideUnchanged
@@ -71,8 +77,14 @@ export function YamlView({
     <div className="yaml-view">
       {preserveImport && sourceYaml && mode === "edit" && (
         <p className="yaml-preserve-notice">
-          Showing your imported file. New routes/schemas are appended on download only — the
-          original text is never converted to OpenAPI 3.
+          Showing your imported file. Use the Diff tab to preview new routes and schemas that
+          will be appended on download.
+        </p>
+      )}
+      {preserveImport && sourceYaml && mode === "diff" && (
+        <p className="yaml-preserve-notice">
+          Comparing export output to baseline. Only newly added routes, tags, and schemas appear
+          here — edits to existing imported routes stay in the visual editor only.
         </p>
       )}
       <div className="yaml-toolbar">
