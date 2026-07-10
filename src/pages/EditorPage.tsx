@@ -7,7 +7,6 @@ import {
   isPreserveImport,
   mergeImportAnchor,
   parseImport,
-  releaseImportAnchor,
   reanchorLoadedDocument,
   getImportSnapshot,
 } from "../lib/preserveImport";
@@ -107,16 +106,8 @@ export function EditorPage() {
     setBaselineDoc(clone(imported));
   }, []);
 
-  const handleReleaseImportAnchor = useCallback(() => {
-    if (!window.confirm("Switch to full YAML rewrite export? Your imported formatting anchor will be released.")) {
-      return;
-    }
-    setDoc(releaseImportAnchor(doc));
-    setSourceYaml(null);
-  }, [doc]);
-
   const handleUpgradeToOpenApi3 = useCallback(() => {
-    const upgraded = upgradeToOpenApi3(releaseImportAnchor(doc));
+    const upgraded = upgradeToOpenApi3(doc);
     setSourceYaml(null);
     setDoc(upgraded);
     setBaselineDoc(clone(upgraded));
@@ -268,19 +259,6 @@ export function EditorPage() {
               ✕
             </button>
           </div>
-        </div>
-      )}
-
-      {preserveImport && (
-        <div className="preserve-import-banner">
-          <p>
-            Download keeps your imported file exactly as-is (Swagger 2.0, comments, formatting).
-            Only newly added routes and schemas are appended. Edit freely in the editor — changes to
-            existing imported routes are for reference until you edit the Raw YAML directly.
-          </p>
-          <button className="btn btn-sm" type="button" onClick={handleReleaseImportAnchor}>
-            Release import anchor
-          </button>
         </div>
       )}
 

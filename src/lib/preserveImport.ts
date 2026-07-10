@@ -6,6 +6,7 @@ import {
   tagSpecVersion,
   type OpenEditorMeta,
 } from "./specVersion";
+import { formatPathsForYamlExport } from "./yamlExportFormat";
 
 export interface ImportSnapshot {
   pathKeys: string[];
@@ -180,7 +181,10 @@ export function buildExportYaml(sourceYaml: string, doc: OpenAPIDocument): strin
   let result = sourceYaml.replace(/\r\n/g, "\n");
 
   if (additions.paths && Object.keys(additions.paths).length > 0) {
-    result = insertPathsIntoSourceYaml(result, formatPathsInsertion(additions.paths));
+    result = insertPathsIntoSourceYaml(
+      result,
+      formatPathsInsertion(additions.paths, doc)
+    );
   }
 
   if (additions.tags && additions.tags.length > 0) {
@@ -239,9 +243,13 @@ function insertTopLevelBlock(sourceYaml: string, keyPrefix: string, blockYaml: s
   return `${sourceYaml.trimEnd()}\n\n${blockYaml}\n`;
 }
 
-function formatPathsInsertion(paths: Record<string, PathItemObject>): string {
+function formatPathsInsertion(
+  paths: Record<string, PathItemObject>,
+  doc: OpenAPIDocument
+): string {
+  const formatted = formatPathsForYamlExport(paths, doc);
   const lines: string[] = [];
-  for (const [path, item] of Object.entries(paths)) {
+  for (const [path, item] of Object.entries(formatted)) {
     const itemYaml = dump(item, { lineWidth: 120, sortKeys: false, noRefs: true }).trimEnd();
     const indented = itemYaml
       .split("\n")
@@ -267,13 +275,4 @@ export function reanchorLoadedDocument(
     servers: content.servers ?? anchored.servers,
   };
   return syncImportAdditions(merged, snapshot);
-}
-
-/** Drop import anchoring and allow full re-serialized export. */
-export function releaseImportAnchor(doc: OpenAPIDocument): OpenAPIDocument {
-  const next = { ...doc } as OpenAPIDocument;
-  const meta = getPreserveMeta(next);
-  delete (next as Record<string, unknown>)[OPENEDITOR_KEY];
-  if (meta.specVersion) return tagSpecVersion(next, meta.specVersion);
-  return next;
 }

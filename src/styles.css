@@ -1331,24 +1331,6 @@ code.mono {
   border-bottom: 1px solid var(--border-subtle);
 }
 
-.preserve-import-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-  margin: 0;
-  padding: 10px 20px;
-  background: var(--bg-elevated);
-  border-bottom: 1px solid var(--border-subtle);
-  color: var(--text-secondary);
-  font-size: 13px;
-}
-
-.preserve-import-banner p {
-  margin: 0;
-}
-
 .imported-badge {
   font-size: 10px;
   font-weight: 700;
