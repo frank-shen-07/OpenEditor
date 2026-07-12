@@ -21,6 +21,7 @@ import {
   tagSpecVersion,
   type SpecVersion,
 } from "./specVersion";
+import { expandDuplicateResponseKeysInYaml } from "./responses";
 
 type Json = Record<string, unknown>;
 
@@ -34,7 +35,7 @@ export function serializeDocument(doc: OpenAPIDocument): string {
   const version = getSpecVersion(doc);
   const payload =
     version === "2.0" ? exportSwagger2(doc) : exportOpenApi3(doc, version);
-  return dump(payload, YAML_DUMP_OPTS);
+  return expandDuplicateResponseKeysInYaml(dump(payload, YAML_DUMP_OPTS));
 }
 
 export function exportSwagger2(doc: OpenAPIDocument): Json {

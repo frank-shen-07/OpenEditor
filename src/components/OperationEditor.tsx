@@ -2,6 +2,11 @@ import { useEffect, useState } from "react";
 import type { HttpMethod, MediaTypeObject, OperationObject, ParameterObject, ResponseObject } from "../types";
 import { clone } from "../lib/document";
 import {
+  listResponseEntries,
+  responseDisplayCode,
+  uniqueResponseKey,
+} from "../lib/responses";
+import {
   getDisplayParameters,
   getParameterType,
   METHODS_WITHOUT_BODY,
@@ -28,7 +33,6 @@ const SCHEMA_TYPES = ["", "string", "number", "integer", "boolean", "array", "ob
   (v) => ({ value: v, label: v === "" ? "(none)" : v })
 );
 
-const COMMON_STATUS_CODES = ["200", "201", "204", "400", "401", "403", "404", "409", "500"];
 
 export function OperationEditor({
   operation,
@@ -91,27 +95,34 @@ export function OperationEditor({
   };
 
   const addResponse = () => {
-    const used = new Set(Object.keys(responses));
-    const code = COMMON_STATUS_CODES.find((c) => !used.has(c)) ?? "default";
-    patch({ responses: { ...responses, [code]: { description: "" } } });
+    const keys = Object.keys(responses);
+    const lastCode = keys.length > 0 ? responseDisplayCode(keys[keys.length - 1]!) : "200";
+    const newKey = uniqueResponseKey(lastCode, keys);
+    patch({ responses: { ...responses, [newKey]: { description: "" } } });
   };
 
-  const renameResponse = (oldCode: string, newCode: string) => {
-    if (newCode === oldCode) return;
-    const next: Record<string, ResponseObject> = {};
-    for (const [code, resp] of Object.entries(responses)) {
-      next[code === oldCode ? newCode : code] = resp;
-    }
+  const renameResponse = (oldKey: string, newCode: string) => {
+    const trimmed = newCode.trim();
+    if (!trimmed) return;
+    const others = Object.keys(responses).filter((k) => k !== oldKey);
+    const newKey =
+      trimmed === responseDisplayCode(oldKey)
+        ? oldKey
+        : uniqueResponseKey(trimmed, others);
+    if (newKey === oldKey) return;
+    const next = { ...responses };
+    next[newKey] = responses[oldKey]!;
+    delete next[oldKey];
     patch({ responses: next });
   };
 
-  const updateResponse = (code: string, p: Partial<ResponseObject>) => {
-    patch({ responses: { ...responses, [code]: { ...responses[code], ...p } } });
+  const updateResponse = (key: string, p: Partial<ResponseObject>) => {
+    patch({ responses: { ...responses, [key]: { ...responses[key], ...p } } });
   };
 
-  const removeResponse = (code: string) => {
+  const removeResponse = (key: string) => {
     const next = { ...responses };
-    delete next[code];
+    delete next[key];
     patch({ responses: next });
   };
 
@@ -313,21 +324,21 @@ export function OperationEditor({
           <EmptyState message="No responses defined. Every operation should define at least one." />
         ) : (
           <div className="card-list">
-            {Object.entries(responses).map(([code, resp]) => (
-              <div className="card card-compact" key={code}>
+            {listResponseEntries(responses).map(({ key, code, response: resp }) => (
+              <div className="card card-compact" key={key}>
                 <div className="card-row">
                   <Field label="Status Code">
-                    <StatusCodeInput code={code} onRename={(v) => renameResponse(code, v)} />
+                    <StatusCodeInput code={code} onRename={(v) => renameResponse(key, v)} />
                   </Field>
                   <Field label="Description">
                     <TextInput
                       value={resp.description ?? ""}
-                      onChange={(v) => updateResponse(code, { description: v })}
+                      onChange={(v) => updateResponse(key, { description: v })}
                     />
                   </Field>
-                  <RemoveButton onClick={() => removeResponse(code)} />
+                  <RemoveButton onClick={() => removeResponse(key)} />
                 </div>
-                <ResponseJsonEditor response={resp} onChange={(r) => updateResponse(code, r)} />
+                <ResponseJsonEditor response={resp} onChange={(r) => updateResponse(key, r)} />
               </div>
             ))}
           </div>

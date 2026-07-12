@@ -7,7 +7,7 @@ import {
   tagSpecVersion,
   type OpenEditorMeta,
 } from "./specVersion";
-import { formatPathItemForYamlExport, formatPathsForYamlExport } from "./yamlExportFormat";
+import { dumpPathItemYaml } from "./yamlExportFormat";
 import { getSpecVersion } from "./specVersion";
 
 export interface ImportSnapshot {
@@ -412,9 +412,7 @@ export function mergeOperationsIntoExistingPath(
 
 function formatPathMethodsInsertion(item: PathItemObject, doc: OpenAPIDocument): string {
   const version = getSpecVersion(doc);
-  const formatted = formatPathItemForYamlExport(item, version);
-  const itemYaml = dump(formatted, { lineWidth: 120, sortKeys: false, noRefs: true }).trimEnd();
-  return itemYaml
+  return dumpPathItemYaml(item, version)
     .split("\n")
     .map((line) => (line ? `    ${line}` : ""))
     .join("\n");
@@ -424,11 +422,10 @@ function formatPathsInsertion(
   paths: Record<string, PathItemObject>,
   doc: OpenAPIDocument
 ): string {
-  const formatted = formatPathsForYamlExport(paths, doc);
+  const version = getSpecVersion(doc);
   const lines: string[] = [];
-  for (const [path, item] of Object.entries(formatted)) {
-    const itemYaml = dump(item, { lineWidth: 120, sortKeys: false, noRefs: true }).trimEnd();
-    const indented = itemYaml
+  for (const [path, item] of Object.entries(paths)) {
+    const indented = dumpPathItemYaml(item, version)
       .split("\n")
       .map((line) => (line ? `    ${line}` : ""))
       .join("\n");
