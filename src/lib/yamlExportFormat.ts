@@ -1,4 +1,3 @@
-import { dump } from "js-yaml";
 import type {
   MediaTypeObject,
   OpenAPIDocument,
@@ -10,7 +9,6 @@ import type {
   SchemaObject,
 } from "../types";
 import { HTTP_METHODS } from "../types";
-import { dumpOperationYaml } from "./responses";
 import { exportSwagger2 } from "./exportDocument";
 import type { SpecVersion } from "./specVersion";
 import { getSpecVersion } from "./specVersion";
@@ -166,25 +164,4 @@ export function formatPathsForYamlExport(
     formatted[path] = formatPathItemForYamlExport(item, version);
   }
   return formatted;
-}
-
-/** Dump a path item for preserve-import YAML (supports duplicate response status codes). */
-export function dumpPathItemYaml(item: PathItemObject, version: SpecVersion): string {
-  const formatted = formatPathItemForYamlExport(item, version);
-  const lines: string[] = [];
-
-  for (const [key, value] of Object.entries(formatted)) {
-    if (HTTP_METHODS.includes(key as (typeof HTTP_METHODS)[number])) continue;
-    const block = dump({ [key]: value }, { noRefs: true, lineWidth: 120, sortKeys: false }).trimEnd();
-    lines.push(block);
-  }
-
-  for (const method of HTTP_METHODS) {
-    const op = formatted[method];
-    if (!op) continue;
-    lines.push(`${method}:`);
-    lines.push(dumpOperationYaml(op, "  ", formatResponse, formatOperationForYamlExport));
-  }
-
-  return lines.join("\n");
 }
