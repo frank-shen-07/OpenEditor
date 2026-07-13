@@ -9,6 +9,17 @@ import { HTTP_METHODS } from "../types";
 
 type Json = Record<string, unknown>;
 
+/** Unwrap `{ value: ... }` envelopes from stored or imported examples. */
+export function unwrapExampleValue(example: unknown): unknown {
+  if (!example || typeof example !== "object" || Array.isArray(example)) return example;
+  const obj = example as Record<string, unknown>;
+  const keys = Object.keys(obj);
+  if (keys.length === 1 && keys[0] === "value") {
+    return unwrapExampleValue(obj.value);
+  }
+  return example;
+}
+
 /** Read a Swagger 2.0 `examples.application/json` value (wrapped or raw). */
 export function extractSwagger2Example(
   examples: unknown,
@@ -18,24 +29,25 @@ export function extractSwagger2Example(
   const raw = (examples as Record<string, unknown>)[mime];
   if (raw === undefined) return undefined;
   if (raw && typeof raw === "object" && !Array.isArray(raw) && "value" in (raw as object)) {
-    return (raw as { value: unknown }).value;
+    return unwrapExampleValue((raw as { value: unknown }).value);
   }
-  return raw;
+  return unwrapExampleValue(raw);
 }
 
 export function attachSchemaExample(schema: SchemaObject, example: unknown): SchemaObject {
-  if (example === undefined) return schema;
-  return { ...schema, example };
+  const unwrapped = unwrapExampleValue(example);
+  if (unwrapped === undefined) return schema;
+  return { ...schema, example: unwrapped };
 }
 
 /** Prefer explicit media `example`; fall back to schema-level example. */
 export function ensureMediaExample(media: MediaTypeObject): MediaTypeObject {
-  if (media.example !== undefined) return media;
-  const schema = media.schema as SchemaObject | undefined;
-  if (schema?.example !== undefined) {
-    return { ...media, example: schema.example };
-  }
-  return media;
+  const example =
+    media.example !== undefined
+      ? unwrapExampleValue(media.example)
+      : unwrapExampleValue((media.schema as SchemaObject | undefined)?.example);
+  if (example === undefined) return media;
+  return { ...media, example };
 }
 
 function ensureContentExamples(content: Record<string, MediaTypeObject> | undefined) {
@@ -82,18 +94,17 @@ export function ensureDocumentExamples(doc: OpenAPIDocument): OpenAPIDocument {
   return result;
 }
 
-/** Attach Swagger 2.0 response `examples` + `schema.example` from a media example. */
+/** Attach Swagger 2.0 `schema.example` from a media example (no `examples` wrapper). */
 export function attachSwagger2ResponseExample(
   resp: Json,
   example: unknown
 ): Json {
-  if (example === undefined) return resp;
+  const unwrapped = unwrapExampleValue(example);
+  if (unwrapped === undefined) return resp;
   const next = { ...resp };
   if (next.schema && typeof next.schema === "object") {
-    next.schema = attachSchemaExample(next.schema as SchemaObject, example);
+    next.schema = attachSchemaExample(next.schema as SchemaObject, unwrapped);
   }
-  next.examples = {
-    "application/json": { value: example },
-  };
+  delete next.examples;
   return next;
 }

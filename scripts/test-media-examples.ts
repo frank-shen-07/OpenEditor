@@ -82,15 +82,13 @@ const resp = (exported.paths as Record<string, { get?: { responses?: Record<stri
 if (!resp) throw new Error("missing exported response");
 
 const schemaExample = (resp.schema as { example?: unknown })?.example;
-const examplesValue = (
-  resp.examples as Record<string, { value?: unknown }> | undefined
-)?.["application/json"]?.value;
+const respExamples = resp.examples as Record<string, unknown> | undefined;
 
 if (JSON.stringify(schemaExample) !== JSON.stringify(connectionsExample)) {
   throw new Error("schema.example mismatch");
 }
-if (JSON.stringify(examplesValue) !== JSON.stringify(connectionsExample)) {
-  throw new Error("examples.application/json.value mismatch");
+if (respExamples) {
+  throw new Error("export should not include examples wrapper");
 }
 
 const yaml = serializeDocument(doc);

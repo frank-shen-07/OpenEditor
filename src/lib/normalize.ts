@@ -9,7 +9,7 @@ import type {
 } from "../types";
 import { HTTP_METHODS, type HttpMethod } from "../types";
 import { detectSpecVersion, tagSpecVersion } from "./specVersion";
-import { extractSwagger2Example } from "./mediaExamples";
+import { extractSwagger2Example, unwrapExampleValue } from "./mediaExamples";
 
 type Json = Record<string, unknown>;
 
@@ -287,11 +287,12 @@ function normalizeResponse(resp: ResponseObject & Json, doc?: Json): ResponseObj
         media.schema && doc
           ? resolveSchemaRefs(media.schema as SchemaObject, doc)
           : (media.schema as SchemaObject | undefined);
-      const example =
+      const example = unwrapExampleValue(
         media.example ??
-        importedExample ??
-        (resolved ? buildExampleFromSchema(resolved) : undefined) ??
-        (resolved?.example !== undefined ? resolved.example : undefined);
+          importedExample ??
+          (resolved ? buildExampleFromSchema(resolved) : undefined) ??
+          (resolved?.example !== undefined ? resolved.example : undefined),
+      );
       content[mediaType] = {
         ...media,
         ...(resolved ? { schema: resolved } : {}),
@@ -309,10 +310,11 @@ function normalizeResponse(resp: ResponseObject & Json, doc?: Json): ResponseObj
 
   const resolved =
     legacySchema && doc ? resolveSchemaRefs(legacySchema, doc) : legacySchema;
-  const example =
+  const example = unwrapExampleValue(
     importedExample ??
-    (resolved ? buildExampleFromSchema(resolved) : undefined) ??
-    (resolved?.example !== undefined ? resolved.example : undefined);
+      (resolved ? buildExampleFromSchema(resolved) : undefined) ??
+      (resolved?.example !== undefined ? resolved.example : undefined),
+  );
 
   const next = { ...resp } as ResponseObject & Json;
   delete next.schema;

@@ -30,6 +30,7 @@ import {
   attachSwagger2ResponseExample,
   ensureDocumentExamples,
   ensureMediaExample,
+  unwrapExampleValue,
 } from "./mediaExamples";
 
 type Json = Record<string, unknown>;
@@ -217,7 +218,7 @@ function requestBodyToBodyParam(body: RequestBodyObject): ParameterObject {
     ? schemaToSwagger2(media.schema as SchemaObject)
     : { type: "object" };
   if (media.example !== undefined) {
-    schema = attachSchemaExample(schema, media.example);
+    schema = attachSchemaExample(schema, unwrapExampleValue(media.example));
   }
   return {
     in: "body",
