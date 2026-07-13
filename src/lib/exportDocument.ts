@@ -21,6 +21,10 @@ import {
   tagSpecVersion,
   type SpecVersion,
 } from "./specVersion";
+import {
+  encodeOperationResponsesInDocument,
+  expandOrderedResponseKeysInYaml,
+} from "./responseOrder";
 
 type Json = Record<string, unknown>;
 
@@ -33,8 +37,10 @@ const YAML_DUMP_OPTS = {
 export function serializeDocument(doc: OpenAPIDocument): string {
   const version = getSpecVersion(doc);
   const payload =
-    version === "2.0" ? exportSwagger2(doc) : exportOpenApi3(doc, version);
-  return dump(payload, YAML_DUMP_OPTS);
+    version === "2.0"
+      ? encodeOperationResponsesInDocument(exportSwagger2(doc))
+      : encodeOperationResponsesInDocument(exportOpenApi3(doc, version));
+  return expandOrderedResponseKeysInYaml(dump(payload, YAML_DUMP_OPTS));
 }
 
 export function exportSwagger2(doc: OpenAPIDocument): Json {

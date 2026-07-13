@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { HttpMethod, MediaTypeObject, OperationObject, ParameterObject, ResponseObject } from "../types";
 import { clone } from "../lib/document";
 import {
@@ -6,6 +6,13 @@ import {
   getParameterType,
   METHODS_WITHOUT_BODY,
 } from "../lib/normalize";
+import {
+  appendResponseOrder,
+  getResponseOrder,
+  removeFromResponseOrder,
+  renameInResponseOrder,
+  reorderResponses,
+} from "../lib/responseOrder";
 import { ExampleSchemaEditor } from "./ExampleSchemaEditor";
 import {
   Checkbox,
@@ -31,22 +38,6 @@ const SCHEMA_TYPES = ["", "string", "number", "integer", "boolean", "array", "ob
 
 const COMMON_STATUS_CODES = ["200", "201", "204", "400", "401", "403", "404", "409", "500"];
 
-function reorderResponseKeys(
-  responses: Record<string, ResponseObject>,
-  order: string[],
-  from: number,
-  to: number
-): Record<string, ResponseObject> {
-  const nextOrder = [...order];
-  const [moved] = nextOrder.splice(from, 1);
-  nextOrder.splice(to, 0, moved);
-  const reordered: Record<string, ResponseObject> = {};
-  for (const code of nextOrder) {
-    if (responses[code]) reordered[code] = responses[code];
-  }
-  return reordered;
-}
-
 export function OperationEditor({
   operation,
   method,
@@ -60,6 +51,7 @@ export function OperationEditor({
 
   const parameters = getDisplayParameters(operation.parameters);
   const responses = operation.responses ?? {};
+  const responseOrder = getResponseOrder(operation);
   const showRequestBody = !METHODS_WITHOUT_BODY.has(method);
   const requestMedia = operation.requestBody?.content?.["application/json"];
   const [responseNotice, setResponseNotice] = useState<string | null>(null);
@@ -118,7 +110,12 @@ export function OperationEditor({
       );
       return;
     }
-    patch({ responses: { ...responses, [code]: { description: "" } } });
+    patch(
+      appendResponseOrder(
+        { ...operation, responses: { ...responses, [code]: { description: "" } } },
+        code
+      )
+    );
   };
 
   const renameResponse = (oldCode: string, newCode: string): boolean => {
@@ -135,7 +132,7 @@ export function OperationEditor({
     for (const [code, resp] of Object.entries(responses)) {
       next[code === oldCode ? trimmed : code] = resp;
     }
-    patch({ responses: next });
+    onChange(renameInResponseOrder({ ...operation, responses: next }, oldCode, trimmed));
     return true;
   };
 
@@ -147,13 +144,11 @@ export function OperationEditor({
     setResponseNotice(null);
     const next = { ...responses };
     delete next[code];
-    patch({ responses: next });
+    onChange(removeFromResponseOrder({ ...operation, responses: next }, code));
   };
 
-  const reorderResponses = (from: number, to: number) => {
-    const order = Object.keys(responses);
-    if (from === to || from < 0 || to < 0 || from >= order.length || to >= order.length) return;
-    patch({ responses: reorderResponseKeys(responses, order, from, to) });
+  const reorderResponseBlocks = (from: number, to: number) => {
+    onChange(reorderResponses(operation, from, to));
   };
 
   const updateRequestBodyMedia = (media: MediaTypeObject) => {
@@ -355,11 +350,12 @@ export function OperationEditor({
           <EmptyState message="No responses defined. Every operation should define at least one." />
         ) : (
           <ResponsesList
+            order={responseOrder}
             responses={responses}
             onRename={renameResponse}
             onUpdate={updateResponse}
             onRemove={removeResponse}
-            onReorder={reorderResponses}
+            onReorder={reorderResponseBlocks}
           />
         )}
       </div>
@@ -368,33 +364,39 @@ export function OperationEditor({
 }
 
 function ResponsesList({
+  order,
   responses,
   onRename,
   onUpdate,
   onRemove,
   onReorder,
 }: {
+  order: string[];
   responses: Record<string, ResponseObject>;
   onRename: (oldCode: string, newCode: string) => boolean;
   onUpdate: (code: string, p: Partial<ResponseObject>) => void;
   onRemove: (code: string) => void;
   onReorder: (from: number, to: number) => void;
 }) {
-  const codes = Object.keys(responses);
-  const [openCodes, setOpenCodes] = useState<Set<string>>(() => new Set(codes));
+  const [openCodes, setOpenCodes] = useState<Set<string>>(() => new Set());
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
+  const prevOrderRef = useRef(order);
 
   useEffect(() => {
+    const prevOrder = prevOrderRef.current;
     setOpenCodes((prev) => {
       const next = new Set(prev);
-      for (const code of codes) next.add(code);
-      for (const code of [...next]) {
-        if (!codes.includes(code)) next.delete(code);
+      for (const code of prevOrder) {
+        if (!order.includes(code)) next.delete(code);
+      }
+      for (const code of order) {
+        if (!prevOrder.includes(code)) next.add(code);
       }
       return next;
     });
-  }, [codes.join("|")]);
+    prevOrderRef.current = order;
+  }, [order.join("|")]);
 
   const toggleOpen = (code: string) => {
     setOpenCodes((prev) => {
@@ -405,21 +407,22 @@ function ResponsesList({
     });
   };
 
-  const handleDrop = (to: number) => {
-    if (dragIndex === null || dragIndex === to) {
+  const handleDrop = (to: number, from: number) => {
+    if (Number.isNaN(from) || from === to) {
       setDragIndex(null);
       setDropIndex(null);
       return;
     }
-    onReorder(dragIndex, to);
+    onReorder(from, to);
     setDragIndex(null);
     setDropIndex(null);
   };
 
   return (
     <div className="response-block-list">
-      {codes.map((code, index) => {
-        const resp = responses[code]!;
+      {order.map((code, index) => {
+        const resp = responses[code];
+        if (!resp) return null;
         const isOpen = openCodes.has(code);
         const isDragging = dragIndex === index;
         const isDropTarget = dropIndex === index && dragIndex !== null && dragIndex !== index;
@@ -437,27 +440,33 @@ function ResponsesList({
             }}
             onDrop={(e) => {
               e.preventDefault();
-              handleDrop(index);
+              e.stopPropagation();
+              const from = Number(e.dataTransfer.getData("application/x-response-index"));
+              handleDrop(index, from);
             }}
           >
             <div className="response-block-header">
-              <button
-                type="button"
+              <div
+                role="button"
+                tabIndex={0}
                 className="response-drag-handle"
                 title="Drag to reorder"
                 draggable
                 onDragStart={(e) => {
                   setDragIndex(index);
                   e.dataTransfer.effectAllowed = "move";
-                  e.dataTransfer.setData("text/plain", String(index));
+                  e.dataTransfer.setData("application/x-response-index", String(index));
                 }}
                 onDragEnd={() => {
                   setDragIndex(null);
                   setDropIndex(null);
                 }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") e.preventDefault();
+                }}
               >
                 ⋮⋮
-              </button>
+              </div>
               <button
                 type="button"
                 className="response-block-toggle"

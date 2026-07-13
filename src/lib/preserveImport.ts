@@ -8,6 +8,10 @@ import {
   type OpenEditorMeta,
 } from "./specVersion";
 import { formatPathItemForYamlExport, formatPathsForYamlExport } from "./yamlExportFormat";
+import {
+  encodeResponsesForYamlDump,
+  expandOrderedResponseKeysInYaml,
+} from "./responseOrder";
 import { getSpecVersion } from "./specVersion";
 
 export interface ImportSnapshot {
@@ -410,10 +414,21 @@ export function mergeOperationsIntoExistingPath(
   return lines.join("\n");
 }
 
+function encodePathItemForYamlDump(item: PathItemObject): PathItemObject {
+  const next: PathItemObject = { ...item };
+  for (const method of HTTP_METHODS) {
+    const op = next[method];
+    if (op) next[method] = encodeResponsesForYamlDump(op);
+  }
+  return next;
+}
+
 function formatPathMethodsInsertion(item: PathItemObject, doc: OpenAPIDocument): string {
   const version = getSpecVersion(doc);
-  const formatted = formatPathItemForYamlExport(item, version);
-  const itemYaml = dump(formatted, { lineWidth: 120, sortKeys: false, noRefs: true }).trimEnd();
+  const formatted = encodePathItemForYamlDump(formatPathItemForYamlExport(item, version));
+  const itemYaml = expandOrderedResponseKeysInYaml(
+    dump(formatted, { lineWidth: 120, sortKeys: false, noRefs: true }).trimEnd()
+  );
   return itemYaml
     .split("\n")
     .map((line) => (line ? `    ${line}` : ""))
@@ -427,7 +442,13 @@ function formatPathsInsertion(
   const formatted = formatPathsForYamlExport(paths, doc);
   const lines: string[] = [];
   for (const [path, item] of Object.entries(formatted)) {
-    const itemYaml = dump(item, { lineWidth: 120, sortKeys: false, noRefs: true }).trimEnd();
+    const itemYaml = expandOrderedResponseKeysInYaml(
+      dump(encodePathItemForYamlDump(item), {
+        lineWidth: 120,
+        sortKeys: false,
+        noRefs: true,
+      }).trimEnd()
+    );
     const indented = itemYaml
       .split("\n")
       .map((line) => (line ? `    ${line}` : ""))
