@@ -7,7 +7,7 @@ import {
   type PathItemObject,
   type TagObject,
 } from "../types";
-import { getAllTagNames, groupOperationsByTag } from "../lib/paths";
+import { getAllTagNames, groupOperationsByTag, normalizePath, parseOpKey } from "../lib/paths";
 import { isOperationSecured } from "../lib/security";
 import { Chevron, EmptyState, Field, LockIcon, MethodBadge, Select } from "./ui";
 import { OperationEditor } from "./OperationEditor";
@@ -44,6 +44,7 @@ export function PathsEditor({
   const [newPathTag, setNewPathTag] = useState("");
   const [newTagName, setNewTagName] = useState("");
   const [newTagDesc, setNewTagDesc] = useState("");
+  const [pathNotice, setPathNotice] = useState<string | null>(null);
 
   const tagSelectOptions = [
     { value: "", label: "(no tag)" },
@@ -145,7 +146,8 @@ export function PathsEditor({
   const addPath = () => {
     const name = newPathDraft.trim();
     if (!name) return;
-    const normalized = name.startsWith("/") ? name : `/${name}`;
+    const normalized = normalizePath(name);
+    if (!normalized) return;
     const op: OperationObject = {
       summary: "",
       responses: { "200": { description: "OK" } },
@@ -205,6 +207,59 @@ export function PathsEditor({
   const updateOperation = (path: string, method: HttpMethod, op: OperationObject) => {
     const item = paths[path] ?? {};
     setPaths({ ...paths, [path]: { ...item, [method]: op } });
+  };
+
+  const renamePath = (oldPath: string, newPathDraft: string): boolean => {
+    const normalized = normalizePath(newPathDraft);
+    if (!normalized) {
+      setPathNotice("Path cannot be empty.");
+      return false;
+    }
+    if (normalized === oldPath) {
+      setPathNotice(null);
+      return true;
+    }
+
+    const moving = paths[oldPath];
+    if (!moving) return false;
+
+    const existing = paths[normalized];
+    if (existing) {
+      for (const method of HTTP_METHODS) {
+        if (moving[method] && existing[method]) {
+          setPathNotice(
+            `“${normalized}” already has a ${method.toUpperCase()} operation. Remove or rename it first.`,
+          );
+          return false;
+        }
+      }
+    }
+
+    setPathNotice(null);
+    const merged: PathItemObject = { ...(existing ?? {}) };
+    for (const method of HTTP_METHODS) {
+      if (moving[method]) merged[method] = moving[method];
+    }
+
+    const nextPaths = { ...paths };
+    delete nextPaths[oldPath];
+    nextPaths[normalized] = merged;
+    setPaths(nextPaths);
+
+    setOpenOps((prev) => {
+      const next = new Set<string>();
+      for (const key of prev) {
+        const parsed = parseOpKey(key);
+        if (!parsed) continue;
+        if (parsed.path === oldPath) {
+          next.add(opKey({ path: normalized, method: parsed.method }));
+        } else {
+          next.add(key);
+        }
+      }
+      return next;
+    });
+    return true;
   };
 
   return (
@@ -308,6 +363,8 @@ export function PathsEditor({
           </div>
         )}
       </div>
+
+      {pathNotice && <p className="response-notice">{pathNotice}</p>}
 
       {tagGroups.length === 0 ? (
         <EmptyState
@@ -438,6 +495,14 @@ export function PathsEditor({
                                 </button>
                               </div>
                             </div>
+                            <div className="opblock-path-bar">
+                              <Field
+                                label="Path"
+                                hint="Renaming moves every method on this route (GET, POST, etc.)."
+                              >
+                                <PathInput path={path} onRename={(v) => renamePath(path, v)} />
+                              </Field>
+                            </div>
                             <OperationEditor
                               key={key}
                               method={method}
@@ -455,6 +520,46 @@ export function PathsEditor({
         })
       )}
     </div>
+  );
+}
+
+function PathInput({
+  path,
+  onRename,
+}: {
+  path: string;
+  onRename: (v: string) => boolean;
+}) {
+  const [draft, setDraft] = useState(path);
+
+  useEffect(() => setDraft(path), [path]);
+
+  const commit = () => {
+    const trimmed = draft.trim();
+    if (!trimmed) {
+      setDraft(path);
+      return;
+    }
+    if (!onRename(trimmed)) {
+      setDraft(path);
+    }
+  };
+
+  return (
+    <input
+      className="input mono"
+      type="text"
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+        if (e.key === "Escape") {
+          setDraft(path);
+          (e.target as HTMLInputElement).blur();
+        }
+      }}
+    />
   );
 }
 

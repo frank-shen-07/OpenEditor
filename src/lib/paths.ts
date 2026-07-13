@@ -17,6 +17,20 @@ export interface TagGroup {
   operations: OperationRef[];
 }
 
+export function normalizePath(path: string): string {
+  const trimmed = path.trim();
+  if (!trimmed) return "";
+  return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+}
+
+export function parseOpKey(key: string): { path: string; method: HttpMethod } | null {
+  const idx = key.lastIndexOf(":");
+  if (idx <= 0) return null;
+  const method = key.slice(idx + 1) as HttpMethod;
+  if (!HTTP_METHODS.includes(method)) return null;
+  return { path: key.slice(0, idx), method };
+}
+
 /** Top-level doc.tags first, then tags used on operations (excludes implicit "default"). */
 export function getAllTagNames(doc: OpenAPIDocument): string[] {
   const definedOrder = (doc.tags ?? []).map((t) => t.name ?? "").filter(Boolean);

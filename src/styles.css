@@ -1212,6 +1212,16 @@ code.mono {
   background: var(--bg-surface);
 }
 
+.opblock-path-bar {
+  padding: 12px 20px 0;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.opblock-path-bar .field {
+  margin-bottom: 12px;
+}
+
 /* ── Models / Schemas ───────────────────────────────────────────────────── */
 
 .models {
