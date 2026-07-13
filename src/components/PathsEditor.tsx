@@ -7,7 +7,7 @@ import {
   type PathItemObject,
   type TagObject,
 } from "../types";
-import { getAllTagNames, groupOperationsByTag, normalizePath, parseOpKey } from "../lib/paths";
+import { getAllTagNames, groupOperationsByTag, normalizePath } from "../lib/paths";
 import { isOperationSecured } from "../lib/security";
 import { Chevron, EmptyState, Field, LockIcon, MethodBadge, Select } from "./ui";
 import { OperationEditor } from "./OperationEditor";
@@ -209,7 +209,11 @@ export function PathsEditor({
     setPaths({ ...paths, [path]: { ...item, [method]: op } });
   };
 
-  const renamePath = (oldPath: string, newPathDraft: string): boolean => {
+  const renameOperationPath = (
+    oldPath: string,
+    method: HttpMethod,
+    newPathDraft: string,
+  ): boolean => {
     const normalized = normalizePath(newPathDraft);
     if (!normalized) {
       setPathNotice("Path cannot be empty.");
@@ -220,43 +224,36 @@ export function PathsEditor({
       return true;
     }
 
-    const moving = paths[oldPath];
-    if (!moving) return false;
+    const source = paths[oldPath];
+    const operation = source?.[method];
+    if (!operation) return false;
 
-    const existing = paths[normalized];
-    if (existing) {
-      for (const method of HTTP_METHODS) {
-        if (moving[method] && existing[method]) {
-          setPathNotice(
-            `“${normalized}” already has a ${method.toUpperCase()} operation. Remove or rename it first.`,
-          );
-          return false;
-        }
-      }
+    const target = paths[normalized];
+    if (target?.[method]) {
+      setPathNotice(
+        `“${normalized}” already has a ${method.toUpperCase()} operation.`,
+      );
+      return false;
     }
 
     setPathNotice(null);
-    const merged: PathItemObject = { ...(existing ?? {}) };
-    for (const method of HTTP_METHODS) {
-      if (moving[method]) merged[method] = moving[method];
-    }
+
+    const nextSource = { ...source };
+    delete nextSource[method];
 
     const nextPaths = { ...paths };
-    delete nextPaths[oldPath];
-    nextPaths[normalized] = merged;
+    if (HTTP_METHODS.some((m) => nextSource[m])) {
+      nextPaths[oldPath] = nextSource;
+    } else {
+      delete nextPaths[oldPath];
+    }
+    nextPaths[normalized] = { ...(target ?? {}), [method]: operation };
     setPaths(nextPaths);
 
     setOpenOps((prev) => {
-      const next = new Set<string>();
-      for (const key of prev) {
-        const parsed = parseOpKey(key);
-        if (!parsed) continue;
-        if (parsed.path === oldPath) {
-          next.add(opKey({ path: normalized, method: parsed.method }));
-        } else {
-          next.add(key);
-        }
-      }
+      const next = new Set(prev);
+      next.delete(opKey({ path: oldPath, method }));
+      next.add(opKey({ path: normalized, method }));
       return next;
     });
     return true;
@@ -496,11 +493,11 @@ export function PathsEditor({
                               </div>
                             </div>
                             <div className="opblock-path-bar">
-                              <Field
-                                label="Path"
-                                hint="Renaming moves every method on this route (GET, POST, etc.)."
-                              >
-                                <PathInput path={path} onRename={(v) => renamePath(path, v)} />
+                              <Field label="Path">
+                                <PathInput
+                                  path={path}
+                                  onRename={(v) => renameOperationPath(path, method, v)}
+                                />
                               </Field>
                             </div>
                             <OperationEditor
