@@ -268,7 +268,9 @@ export function EditorPage() {
         />
         <ServersEditor doc={doc} onChange={updateDocFromVisual} />
         <PathsEditor doc={doc} onChange={updateDocFromVisual} />
-        <SchemasEditor doc={doc} onChange={updateDocFromVisual} />
+        {Object.keys(doc.components?.schemas ?? {}).length > 0 && (
+          <SchemasEditor doc={doc} onChange={updateDocFromVisual} />
+        )}
 
         <section className={`models yaml-section${yamlOpen ? " is-open" : ""}`}>
           <button
