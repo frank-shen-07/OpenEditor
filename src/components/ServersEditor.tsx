@@ -6,10 +6,14 @@ import { EmptyState, Field, RemoveButton, TextInput } from "./ui";
 export function ServersEditor({
   doc,
   onChange,
+  hidden = false,
 }: {
   doc: OpenAPIDocument;
   onChange: (doc: OpenAPIDocument) => void;
+  hidden?: boolean;
 }) {
+  if (hidden) return null;
+
   if (isSwagger2(doc)) {
     return <Swagger2ServersEditor doc={doc} onChange={onChange} />;
   }

@@ -1690,6 +1690,28 @@ code.mono {
   border-radius: 4px;
 }
 
+.response-description-box {
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--bg-textarea);
+  overflow: hidden;
+}
+
+.response-description-box .textarea {
+  width: 100%;
+  min-height: 160px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.response-description-box .textarea:focus {
+  outline: none;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--link) 45%, transparent);
+}
+
 .response-block-list,
 .editor-block-list {
   display: flex;

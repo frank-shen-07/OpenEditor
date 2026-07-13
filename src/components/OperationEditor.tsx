@@ -445,6 +445,14 @@ function ParametersList({
   );
 }
 
+function responseDescriptionSummary(description?: string): string {
+  const line = description
+    ?.trim()
+    .split(/\r?\n/)
+    .find((part) => part.trim());
+  return line?.trim() || "No description";
+}
+
 function ResponsesList({
   order,
   responses,
@@ -475,7 +483,7 @@ function ResponsesList({
             <Chevron open={isOpen} />
             <span className="editor-block-title mono">{code}</span>
             <span className="editor-block-summary">
-              {response.description?.trim() || "No description"}
+              {responseDescriptionSummary(response.description)}
             </span>
           </button>
           <RemoveButton onClick={() => onRemove(code)} />
@@ -483,17 +491,21 @@ function ResponsesList({
       )}
       renderBody={({ code, response }) => (
         <>
-          <div className="card-row">
-            <Field label="Status Code">
-              <StatusCodeInput code={code} onRename={(v) => onRename(code, v)} />
-            </Field>
-            <Field label="Description">
-              <TextInput
+          <Field label="Status Code">
+            <StatusCodeInput code={code} onRename={(v) => onRename(code, v)} />
+          </Field>
+          <Field
+            label="Description"
+            hint="When is this status returned? Use bullet points for error codes and conditions."
+          >
+            <div className="response-description-box">
+              <TextArea
                 value={response.description ?? ""}
                 onChange={(v) => onUpdate(code, { description: v })}
+                rows={8}
               />
-            </Field>
-          </div>
+            </div>
+          </Field>
           <ResponseJsonEditor response={response} onChange={(r) => onUpdate(code, r)} />
         </>
       )}

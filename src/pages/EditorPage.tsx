@@ -266,7 +266,7 @@ export function EditorPage() {
           onChange={updateDocFromVisual}
           onUpgradeToOpenApi3={preserveImport ? undefined : handleUpgradeToOpenApi3}
         />
-        <ServersEditor doc={doc} onChange={updateDocFromVisual} />
+        <ServersEditor doc={doc} onChange={updateDocFromVisual} hidden={preserveImport} />
         <PathsEditor doc={doc} onChange={updateDocFromVisual} />
         {Object.keys(doc.components?.schemas ?? {}).length > 0 && (
           <SchemasEditor doc={doc} onChange={updateDocFromVisual} />
