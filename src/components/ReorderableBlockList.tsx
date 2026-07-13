@@ -1,5 +1,4 @@
 import {
-  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -12,6 +11,12 @@ const LIST_GAP = 8;
 const DRAG_THRESHOLD = 6;
 const DRAG_BLOCKED_SELECTOR =
   "button, input, textarea, select, a, label, [contenteditable='true'], .json-editor-textarea";
+
+let blockIdCounter = 0;
+function createBlockId(): string {
+  blockIdCounter += 1;
+  return `editor-block-${blockIdCounter}`;
+}
 
 function isDragBlocked(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -41,6 +46,24 @@ function computeInsertAt(list: HTMLElement, clientY: number, dragIndex: number):
   return wraps.length;
 }
 
+function remapOpenIndices(open: Set<number>, from: number, to: number): Set<number> {
+  const next = new Set<number>();
+  for (const index of open) {
+    if (index === from) {
+      next.add(to);
+      continue;
+    }
+    let adjusted = index;
+    if (from < to) {
+      if (index > from && index <= to) adjusted = index - 1;
+    } else if (from > to) {
+      if (index >= to && index < from) adjusted = index + 1;
+    }
+    next.add(adjusted);
+  }
+  return next;
+}
+
 export type ReorderableBlockListProps<T> = {
   items: T[];
   getKey: (item: T, index: number) => string;
@@ -59,12 +82,14 @@ export function ReorderableBlockList<T>({
   renderHeader,
   renderBody,
 }: ReorderableBlockListProps<T>) {
-  const keys = items.map((item, index) => getKey(item, index));
-  const [openKeys, setOpenKeys] = useState<Set<string>>(() => new Set());
+  const itemKeys = items.map((item, index) => getKey(item, index));
+  const [blockIds, setBlockIds] = useState<string[]>(() => items.map(() => createBlockId()));
+  const [openIndices, setOpenIndices] = useState<Set<number>>(() => new Set());
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [insertAt, setInsertAt] = useState<number | null>(null);
   const [dropLineY, setDropLineY] = useState<number | null>(null);
-  const prevKeysRef = useRef(keys);
+  const prevItemKeysRef = useRef(itemKeys);
+  const prevLengthRef = useRef(items.length);
   const listRef = useRef<HTMLDivElement>(null);
   const dragBlockHeightRef = useRef(0);
   const flipTopsRef = useRef<Map<string, number> | null>(null);
@@ -77,20 +102,46 @@ export function ReorderableBlockList<T>({
   const pendingDragIndexRef = useRef<number | null>(null);
   const pendingPointerYRef = useRef(0);
 
-  useEffect(() => {
-    const prevKeys = prevKeysRef.current;
-    setOpenKeys((prev) => {
-      const next = new Set(prev);
-      for (const key of prevKeys) {
-        if (!keys.includes(key)) next.delete(key);
-      }
-      for (const key of keys) {
-        if (!prevKeys.includes(key)) next.add(key);
-      }
-      return next;
-    });
-    prevKeysRef.current = keys;
-  }, [keys.join("|")]);
+  useLayoutEffect(() => {
+    const prevKeys = prevItemKeysRef.current;
+    const prevLength = prevLengthRef.current;
+    const nextLength = items.length;
+
+    if (nextLength === prevLength) {
+      prevItemKeysRef.current = itemKeys;
+      return;
+    }
+
+    if (nextLength > prevLength) {
+      setBlockIds((prev) => [
+        ...prev,
+        ...Array.from({ length: nextLength - prevLength }, () => createBlockId()),
+      ]);
+      setOpenIndices((prev) => {
+        const next = new Set(prev);
+        for (let i = prevLength; i < nextLength; i++) {
+          next.add(i);
+        }
+        return next;
+      });
+    } else {
+      const removedKey = prevKeys.find((key) => !itemKeys.includes(key));
+      const removedIndex = removedKey ? prevKeys.indexOf(removedKey) : prevLength - 1;
+      setBlockIds((prev) => prev.filter((_, i) => i !== removedIndex));
+      setOpenIndices((prev) => {
+        const next = new Set<number>();
+        for (const index of prev) {
+          if (index === removedIndex) continue;
+          if (index > removedIndex) next.add(index - 1);
+          else next.add(index);
+        }
+        return next;
+      });
+    }
+
+    prevItemKeysRef.current = itemKeys;
+    prevLengthRef.current = nextLength;
+  }, [items.length, itemKeys.join("|")]);
 
   useLayoutEffect(() => {
     const first = flipTopsRef.current;
@@ -100,11 +151,11 @@ export function ReorderableBlockList<T>({
     const list = listRef.current;
     if (!list) return;
 
-    for (const key of keys) {
-      const block = list.querySelector<HTMLElement>(`[data-editor-block][data-block-id="${key}"]`);
+    for (const blockId of blockIds) {
+      const block = list.querySelector<HTMLElement>(`[data-editor-block][data-block-id="${blockId}"]`);
       const wrap = block?.parentElement as HTMLElement | null;
       if (!wrap) continue;
-      const firstTop = first.get(key);
+      const firstTop = first.get(blockId);
       if (firstTop === undefined) continue;
       const lastTop = wrap.offsetTop;
       const dy = firstTop - lastTop;
@@ -122,13 +173,13 @@ export function ReorderableBlockList<T>({
         wrap.addEventListener("transitionend", cleanup);
       });
     }
-  }, [keys.join("|")]);
+  }, [blockIds.join("|")]);
 
-  const toggleOpen = (key: string) => {
-    setOpenKeys((prev) => {
+  const toggleOpen = (index: number) => {
+    setOpenIndices((prev) => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
       return next;
     });
   };
@@ -199,16 +250,16 @@ export function ReorderableBlockList<T>({
   useLayoutEffect(() => {
     if (insertAt === null || dragIndex === null) return;
     updateDropLineY(insertAt);
-  }, [insertAt, dragIndex, keys.join("|")]);
+  }, [insertAt, dragIndex, blockIds.join("|")]);
 
   const captureFlipPositions = () => {
     const list = listRef.current;
     if (!list) return;
     const tops = new Map<string, number>();
-    for (const key of keys) {
-      const block = list.querySelector<HTMLElement>(`[data-editor-block][data-block-id="${key}"]`);
+    for (const blockId of blockIds) {
+      const block = list.querySelector<HTMLElement>(`[data-editor-block][data-block-id="${blockId}"]`);
       const wrap = block?.parentElement as HTMLElement | null;
-      if (wrap) tops.set(key, wrap.offsetTop);
+      if (wrap) tops.set(blockId, wrap.offsetTop);
     }
     flipTopsRef.current = tops;
   };
@@ -226,6 +277,13 @@ export function ReorderableBlockList<T>({
     }
     const to = insert > from ? insert - 1 : insert;
     captureFlipPositions();
+    setBlockIds((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      return next;
+    });
+    setOpenIndices((prev) => remapOpenIndices(prev, from, to));
     onReorder(from, to);
     clearDragState();
   };
@@ -301,14 +359,14 @@ export function ReorderableBlockList<T>({
       }
     >
       {items.map((item, index) => {
-        const key = keys[index];
-        const isOpen = openKeys.has(key) && dragIndex !== index;
+        const blockId = blockIds[index] ?? createBlockId();
+        const isOpen = openIndices.has(index) && dragIndex !== index;
         const isDraggingBlock = dragIndex === index;
         const shiftY = getShiftY(index, dragIndex, insertAt, dragBlockHeight);
 
         return (
           <div
-            key={key}
+            key={blockId}
             className={`editor-block-wrap${isDragging && !isDraggingBlock ? " is-shifting" : ""}${isDraggingBlock ? " is-dragging-active" : ""}`}
             style={
               isDraggingBlock
@@ -320,7 +378,7 @@ export function ReorderableBlockList<T>({
           >
             <div
               data-editor-block
-              data-block-id={key}
+              data-block-id={blockId}
               className={`editor-block${isOpen ? " is-open" : ""}${isDraggingBlock ? " is-dragging" : ""}`}
               onPointerDown={(e) => startBlockDrag(index, e)}
               onPointerMove={moveBlockDrag}
@@ -333,7 +391,7 @@ export function ReorderableBlockList<T>({
                 </span>
                 {renderHeader(item, {
                   isOpen,
-                  toggle: () => toggleOpen(key),
+                  toggle: () => toggleOpen(index),
                   index,
                 })}
               </div>
