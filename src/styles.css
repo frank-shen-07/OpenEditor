@@ -1694,21 +1694,101 @@ code.mono {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  position: relative;
+}
+
+.response-block-list.is-dragging {
+  cursor: grabbing;
+}
+
+.response-block-list.is-dragging::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: var(--response-drop-line-y, 0);
+  height: 3px;
+  border-radius: 999px;
+  background: var(--link);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--link) 35%, transparent),
+    0 0 16px color-mix(in srgb, var(--link) 60%, transparent);
+  pointer-events: none;
+  z-index: 3;
+  transform: translateY(-50%);
+  transition: top 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+  animation: response-drop-glow 1s ease-in-out infinite;
+}
+
+.response-block-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  will-change: transform;
+}
+
+.response-block-wrap.is-shifting {
+  transition: transform 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes response-drop-glow {
+  0%,
+  100% {
+    opacity: 0.75;
+    transform: translateY(-50%) scaleX(0.94);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-50%) scaleX(1);
+  }
 }
 
 .response-block {
   background: var(--bg-elevated);
   border: 1px solid var(--border-subtle);
-  border-radius: 4px;
-  transition: border-color 0.15s ease, opacity 0.15s ease;
+  border-radius: 6px;
+  overflow: hidden;
+  transition:
+    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.24s ease,
+    box-shadow 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.24s ease;
 }
 
 .response-block.is-dragging {
-  opacity: 0.45;
+  opacity: 1;
+  transform: scale(1.02) rotate(-0.4deg);
+  border-color: color-mix(in srgb, var(--link) 75%, var(--border-subtle));
+  box-shadow:
+    0 14px 32px rgba(0, 0, 0, 0.24),
+    0 0 0 1px color-mix(in srgb, var(--link) 40%, transparent),
+    0 0 24px color-mix(in srgb, var(--link) 18%, transparent);
+  z-index: 2;
+  position: relative;
 }
 
-.response-block.is-drop-target {
-  border-color: var(--link);
+.response-block:not(.is-open) .response-block-body {
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-top-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.response-block.is-open .response-block-body {
+  max-height: 2000px;
+  opacity: 1;
+  transition:
+    max-height 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.22s ease,
+    padding 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+    border-top-width 0.22s ease;
+}
+
+.response-block-list.is-dragging .response-block:not(.is-dragging) {
+  opacity: 0.88;
 }
 
 .response-block-header {
@@ -1721,18 +1801,31 @@ code.mono {
 .response-drag-handle {
   flex: 0 0 auto;
   padding: 4px 6px;
-  border: none;
+  border: 1px solid transparent;
   border-radius: 4px;
   background: transparent;
   color: var(--text-muted);
   font-size: 14px;
   line-height: 1;
+  letter-spacing: -0.08em;
   cursor: grab;
   user-select: none;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.15s ease;
+}
+
+.response-drag-handle:hover {
+  background: var(--bg-input);
+  border-color: var(--border-subtle);
+  color: var(--link);
 }
 
 .response-drag-handle:active {
   cursor: grabbing;
+  transform: scale(1.05);
 }
 
 .response-block-toggle {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { HttpMethod, MediaTypeObject, OperationObject, ParameterObject, ResponseObject } from "../types";
 import { clone } from "../lib/document";
 import {
@@ -363,6 +363,21 @@ export function OperationEditor({
   );
 }
 
+const RESPONSE_LIST_GAP = 8;
+
+function getResponseShiftY(
+  index: number,
+  dragIndex: number | null,
+  insertAt: number | null,
+  blockHeight: number,
+): number {
+  if (dragIndex === null || insertAt === null || index === dragIndex) return 0;
+  const shift = blockHeight + RESPONSE_LIST_GAP;
+  if (dragIndex < insertAt && index > dragIndex && index < insertAt) return -shift;
+  if (dragIndex > insertAt && index >= insertAt && index < dragIndex) return shift;
+  return 0;
+}
+
 function ResponsesList({
   order,
   responses,
@@ -380,8 +395,14 @@ function ResponsesList({
 }) {
   const [openCodes, setOpenCodes] = useState<Set<string>>(() => new Set());
   const [dragIndex, setDragIndex] = useState<number | null>(null);
-  const [dropIndex, setDropIndex] = useState<number | null>(null);
+  const [insertAt, setInsertAt] = useState<number | null>(null);
+  const [dropLineY, setDropLineY] = useState<number | null>(null);
   const prevOrderRef = useRef(order);
+  const listRef = useRef<HTMLDivElement>(null);
+  const dragBlockHeightRef = useRef(0);
+  const flipTopsRef = useRef<Map<string, number> | null>(null);
+  const dragRafRef = useRef<number | null>(null);
+  const pendingClientYRef = useRef(0);
 
   useEffect(() => {
     const prevOrder = prevOrderRef.current;
@@ -398,6 +419,38 @@ function ResponsesList({
     prevOrderRef.current = order;
   }, [order.join("|")]);
 
+  useLayoutEffect(() => {
+    const first = flipTopsRef.current;
+    if (!first) return;
+    flipTopsRef.current = null;
+
+    const list = listRef.current;
+    if (!list) return;
+
+    for (const code of order) {
+      const block = list.querySelector<HTMLElement>(`[data-response-block][data-code="${code}"]`);
+      const wrap = block?.parentElement as HTMLElement | null;
+      if (!wrap) continue;
+      const firstTop = first.get(code);
+      if (firstTop === undefined) continue;
+      const lastTop = wrap.offsetTop;
+      const dy = firstTop - lastTop;
+      if (Math.abs(dy) < 1) continue;
+
+      wrap.style.transition = "none";
+      wrap.style.transform = `translateY(${dy}px)`;
+      requestAnimationFrame(() => {
+        wrap.style.transition = "transform 0.38s cubic-bezier(0.22, 1, 0.36, 1)";
+        wrap.style.transform = "";
+        const cleanup = () => {
+          wrap.style.transition = "";
+          wrap.removeEventListener("transitionend", cleanup);
+        };
+        wrap.addEventListener("transitionend", cleanup);
+      });
+    }
+  }, [order.join("|")]);
+
   const toggleOpen = (code: string) => {
     setOpenCodes((prev) => {
       const next = new Set(prev);
@@ -407,80 +460,182 @@ function ResponsesList({
     });
   };
 
-  const handleDrop = (to: number, from: number) => {
-    if (Number.isNaN(from) || from === to) {
-      setDragIndex(null);
-      setDropIndex(null);
-      return;
+  const clearDragState = () => {
+    if (dragRafRef.current !== null) {
+      cancelAnimationFrame(dragRafRef.current);
+      dragRafRef.current = null;
     }
-    onReorder(from, to);
     setDragIndex(null);
-    setDropIndex(null);
+    setInsertAt(null);
+    setDropLineY(null);
   };
 
+  const updateDropLineY = (nextInsert: number) => {
+    const list = listRef.current;
+    if (!list) return;
+    const listTop = list.getBoundingClientRect().top;
+    const wraps = Array.from(list.querySelectorAll<HTMLElement>(".response-block-wrap"));
+    if (wraps.length === 0) {
+      setDropLineY(0);
+      return;
+    }
+    if (nextInsert <= 0) {
+      setDropLineY(wraps[0].getBoundingClientRect().top - listTop - 2);
+      return;
+    }
+    if (nextInsert >= wraps.length) {
+      const last = wraps[wraps.length - 1];
+      setDropLineY(last.getBoundingClientRect().bottom - listTop + 2);
+      return;
+    }
+    setDropLineY(wraps[nextInsert].getBoundingClientRect().top - listTop - 2);
+  };
+
+  useLayoutEffect(() => {
+    if (insertAt === null || dragIndex === null) return;
+    updateDropLineY(insertAt);
+  }, [insertAt, dragIndex, order.join("|")]);
+
+  const updateInsertAt = (clientY: number) => {
+    const list = listRef.current;
+    if (!list) return;
+    const blocks = Array.from(list.querySelectorAll<HTMLElement>("[data-response-block]"));
+    let nextInsert = order.length;
+    for (let i = 0; i < blocks.length; i++) {
+      const rect = blocks[i].getBoundingClientRect();
+      if (clientY < rect.top + rect.height / 2) {
+        nextInsert = i;
+        break;
+      }
+    }
+    setInsertAt((prev) => (prev === nextInsert ? prev : nextInsert));
+    updateDropLineY(nextInsert);
+  };
+
+  const scheduleInsertUpdate = (clientY: number) => {
+    pendingClientYRef.current = clientY;
+    if (dragRafRef.current !== null) return;
+    dragRafRef.current = requestAnimationFrame(() => {
+      dragRafRef.current = null;
+      updateInsertAt(pendingClientYRef.current);
+    });
+  };
+
+  const captureFlipPositions = () => {
+    const list = listRef.current;
+    if (!list) return;
+    const tops = new Map<string, number>();
+    for (const code of order) {
+      const block = list.querySelector<HTMLElement>(`[data-response-block][data-code="${code}"]`);
+      const wrap = block?.parentElement as HTMLElement | null;
+      if (wrap) tops.set(code, wrap.offsetTop);
+    }
+    flipTopsRef.current = tops;
+  };
+
+  const handleDrop = (from: number) => {
+    if (Number.isNaN(from) || insertAt === null) {
+      clearDragState();
+      return;
+    }
+    if (insertAt === from || insertAt === from + 1) {
+      clearDragState();
+      return;
+    }
+    const to = insertAt > from ? insertAt - 1 : insertAt;
+    captureFlipPositions();
+    onReorder(from, to);
+    clearDragState();
+  };
+
+  const isDragging = dragIndex !== null;
+  const dragBlockHeight = dragBlockHeightRef.current;
+
   return (
-    <div className="response-block-list">
+    <div
+      ref={listRef}
+      className={`response-block-list${isDragging ? " is-dragging" : ""}`}
+      style={
+        isDragging && dropLineY !== null
+          ? ({ "--response-drop-line-y": `${dropLineY}px` } as React.CSSProperties)
+          : undefined
+      }
+      onDragOver={(e) => {
+        if (dragIndex === null) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        scheduleInsertUpdate(e.clientY);
+      }}
+      onDragLeave={(e) => {
+        if (!listRef.current?.contains(e.relatedTarget as Node)) {
+          setInsertAt(null);
+          setDropLineY(null);
+        }
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        const from = Number(e.dataTransfer.getData("application/x-response-index"));
+        handleDrop(from);
+      }}
+    >
       {order.map((code, index) => {
         const resp = responses[code];
         if (!resp) return null;
-        const isOpen = openCodes.has(code);
-        const isDragging = dragIndex === index;
-        const isDropTarget = dropIndex === index && dragIndex !== null && dragIndex !== index;
+        const isOpen = openCodes.has(code) && dragIndex !== index;
+        const isDraggingBlock = dragIndex === index;
+        const shiftY = getResponseShiftY(index, dragIndex, insertAt, dragBlockHeight);
 
         return (
           <div
             key={code}
-            className={`response-block${isOpen ? " is-open" : ""}${isDragging ? " is-dragging" : ""}${isDropTarget ? " is-drop-target" : ""}`}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDropIndex(index);
-            }}
-            onDragLeave={() => {
-              if (dropIndex === index) setDropIndex(null);
-            }}
-            onDrop={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              const from = Number(e.dataTransfer.getData("application/x-response-index"));
-              handleDrop(index, from);
-            }}
+            className={`response-block-wrap${isDragging ? " is-shifting" : ""}`}
+            style={shiftY ? { transform: `translateY(${shiftY}px)` } : undefined}
           >
-            <div className="response-block-header">
-              <div
-                role="button"
-                tabIndex={0}
-                className="response-drag-handle"
-                title="Drag to reorder"
-                draggable
-                onDragStart={(e) => {
-                  setDragIndex(index);
-                  e.dataTransfer.effectAllowed = "move";
-                  e.dataTransfer.setData("application/x-response-index", String(index));
-                }}
-                onDragEnd={() => {
-                  setDragIndex(null);
-                  setDropIndex(null);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") e.preventDefault();
-                }}
-              >
-                ⋮⋮
+            <div
+              data-response-block
+              data-code={code}
+              className={`response-block${isOpen ? " is-open" : ""}${isDraggingBlock ? " is-dragging" : ""}`}
+            >
+              <div className="response-block-header">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  className="response-drag-handle"
+                  title="Drag to reorder"
+                  draggable
+                  onDragStart={(e) => {
+                    const wrap = (e.currentTarget as HTMLElement).closest(".response-block-wrap");
+                    dragBlockHeightRef.current = wrap?.getBoundingClientRect().height ?? 52;
+                    setDragIndex(index);
+                    setInsertAt(index);
+                    updateDropLineY(index);
+                    e.dataTransfer.effectAllowed = "move";
+                    e.dataTransfer.setData("application/x-response-index", String(index));
+                    const img = new Image();
+                    img.src =
+                      "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+                    e.dataTransfer.setDragImage(img, 0, 0);
+                  }}
+                  onDragEnd={clearDragState}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") e.preventDefault();
+                  }}
+                >
+                  ⋮⋮
+                </div>
+                <button
+                  type="button"
+                  className="response-block-toggle"
+                  onClick={() => toggleOpen(code)}
+                >
+                  <Chevron open={isOpen} />
+                  <span className="response-block-code mono">{code}</span>
+                  <span className="response-block-summary">
+                    {resp.description?.trim() || "No description"}
+                  </span>
+                </button>
+                <RemoveButton onClick={() => onRemove(code)} />
               </div>
-              <button
-                type="button"
-                className="response-block-toggle"
-                onClick={() => toggleOpen(code)}
-              >
-                <Chevron open={isOpen} />
-                <span className="response-block-code mono">{code}</span>
-                <span className="response-block-summary">
-                  {resp.description?.trim() || "No description"}
-                </span>
-              </button>
-              <RemoveButton onClick={() => onRemove(code)} />
-            </div>
-            {isOpen && (
               <div className="response-block-body">
                 <div className="card-row">
                   <Field label="Status Code">
@@ -495,7 +650,7 @@ function ResponsesList({
                 </div>
                 <ResponseJsonEditor response={resp} onChange={(r) => onUpdate(code, r)} />
               </div>
-            )}
+            </div>
           </div>
         );
       })}
