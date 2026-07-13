@@ -25,6 +25,12 @@ import {
   encodeOperationResponsesInDocument,
   expandOrderedResponseKeysInYaml,
 } from "./responseOrder";
+import {
+  attachSchemaExample,
+  attachSwagger2ResponseExample,
+  ensureDocumentExamples,
+  ensureMediaExample,
+} from "./mediaExamples";
 
 type Json = Record<string, unknown>;
 
@@ -36,10 +42,11 @@ const YAML_DUMP_OPTS = {
 
 export function serializeDocument(doc: OpenAPIDocument): string {
   const version = getSpecVersion(doc);
+  const withExamples = ensureDocumentExamples(doc);
   const payload =
     version === "2.0"
-      ? encodeOperationResponsesInDocument(exportSwagger2(doc))
-      : encodeOperationResponsesInDocument(exportOpenApi3(doc, version));
+      ? encodeOperationResponsesInDocument(exportSwagger2(withExamples))
+      : encodeOperationResponsesInDocument(exportOpenApi3(withExamples, version));
   return expandOrderedResponseKeysInYaml(dump(payload, YAML_DUMP_OPTS));
 }
 
@@ -205,13 +212,19 @@ function isBodyRef(param: ParameterObject): boolean {
 }
 
 function requestBodyToBodyParam(body: RequestBodyObject): ParameterObject {
-  const media = body.content?.["application/json"];
+  const media = ensureMediaExample(body.content?.["application/json"] ?? {});
+  let schema: SchemaObject = media.schema
+    ? schemaToSwagger2(media.schema as SchemaObject)
+    : { type: "object" };
+  if (media.example !== undefined) {
+    schema = attachSchemaExample(schema, media.example);
+  }
   return {
     in: "body",
     name: "body",
     required: body.required ?? true,
     description: body.description,
-    schema: media?.schema ? schemaToSwagger2(media.schema as SchemaObject) : { type: "object" },
+    schema,
   };
 }
 
@@ -238,11 +251,19 @@ function paramToSwagger2(param: ParameterObject): ParameterObject {
 }
 
 function responseToSwagger2(resp: ResponseObject): ResponseObject {
-  const media = resp.content?.["application/json"];
-  if (!media?.schema) return resp;
+  const media = ensureMediaExample(resp.content?.["application/json"] ?? {});
+  if (!media.schema && media.example === undefined) return resp;
 
   const next = { ...resp } as ResponseObject & Json;
-  next.schema = schemaToSwagger2(media.schema as SchemaObject);
+  if (media.schema) {
+    next.schema = schemaToSwagger2(media.schema as SchemaObject);
+  }
+  if (media.example !== undefined) {
+    const withExample = attachSwagger2ResponseExample(next, media.example) as ResponseObject & Json;
+    delete withExample.content;
+    return withExample;
+  }
+
   delete next.content;
   return next;
 }

@@ -12,6 +12,7 @@ import { HTTP_METHODS } from "../types";
 import { exportSwagger2 } from "./exportDocument";
 import type { SpecVersion } from "./specVersion";
 import { getSpecVersion } from "./specVersion";
+import { ensureMediaExample } from "./mediaExamples";
 
 function reorderKeys<T extends Record<string, unknown>>(
   obj: T,
@@ -53,7 +54,7 @@ function formatSchema(schema: SchemaObject): SchemaObject {
 }
 
 function formatMediaType(media: MediaTypeObject): MediaTypeObject {
-  const next = { ...media };
+  const next = ensureMediaExample({ ...media });
   if (next.schema) next.schema = formatSchema(next.schema as SchemaObject);
   return reorderKeys(next as Record<string, unknown>, [
     "schema",

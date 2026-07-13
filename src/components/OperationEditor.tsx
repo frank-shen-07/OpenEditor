@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { HttpMethod, MediaTypeObject, OperationObject, ParameterObject, ResponseObject } from "../types";
 import { clone } from "../lib/document";
 import {
@@ -6,6 +6,7 @@ import {
   getParameterType,
   METHODS_WITHOUT_BODY,
 } from "../lib/normalize";
+import { reorderDisplayParameters } from "../lib/parameters";
 import {
   appendResponseOrder,
   getResponseOrder,
@@ -14,6 +15,7 @@ import {
   reorderResponses,
 } from "../lib/responseOrder";
 import { ExampleSchemaEditor } from "./ExampleSchemaEditor";
+import { ReorderableBlockList } from "./ReorderableBlockList";
 import {
   Checkbox,
   Chevron,
@@ -151,6 +153,10 @@ export function OperationEditor({
     onChange(reorderResponses(operation, from, to));
   };
 
+  const reorderParamBlocks = (from: number, to: number) => {
+    patch({ parameters: reorderDisplayParameters(operation.parameters ?? [], from, to) });
+  };
+
   const updateRequestBodyMedia = (media: MediaTypeObject) => {
     patch({
       requestBody: {
@@ -210,51 +216,15 @@ export function OperationEditor({
           </button>
         </div>
         {parameters.length === 0 ? (
-          <p className="muted">No parameters.</p>
+          <EmptyState message="No parameters." />
         ) : (
-          <div className="card-list">
-            {parameters.map((param, i) => (
-              <div className="card card-compact" key={i}>
-                <div className="card-row">
-                  <Field label="Name">
-                    <TextInput
-                      value={param.name ?? ""}
-                      onChange={(v) => updateParam(i, { name: v })}
-                      mono
-                    />
-                  </Field>
-                  <Field label="Location">
-                    <Select
-                      value={param.in ?? "query"}
-                      onChange={(v) => updateParam(i, { in: v })}
-                      options={PARAM_LOCATIONS}
-                    />
-                  </Field>
-                  <Field label="Data type">
-                    <Select
-                      value={getParameterType(param)}
-                      onChange={(v) => updateParamType(i, v)}
-                      options={SCHEMA_TYPES}
-                    />
-                  </Field>
-                  <RemoveButton onClick={() => removeParam(i)} />
-                </div>
-                <div className="card-row">
-                  <Field label="Description">
-                    <TextInput
-                      value={param.description ?? ""}
-                      onChange={(v) => updateParam(i, { description: v })}
-                    />
-                  </Field>
-                  <Checkbox
-                    checked={param.required ?? false}
-                    onChange={(v) => updateParam(i, { required: v })}
-                    label="Required"
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
+          <ParametersList
+            parameters={parameters}
+            onUpdate={updateParam}
+            onUpdateType={updateParamType}
+            onRemove={removeParam}
+            onReorder={reorderParamBlocks}
+          />
         )}
       </div>
 
@@ -363,19 +333,116 @@ export function OperationEditor({
   );
 }
 
-const RESPONSE_LIST_GAP = 8;
+function paramKey(param: ParameterObject, index: number): string {
+  if (typeof param.$ref === "string") return param.$ref;
+  const inLoc = param.in ?? "query";
+  const name = param.name?.trim();
+  if (name) return `${inLoc}:${name}`;
+  return `${inLoc}:__${index}`;
+}
 
-function getResponseShiftY(
-  index: number,
-  dragIndex: number | null,
-  insertAt: number | null,
-  blockHeight: number,
-): number {
-  if (dragIndex === null || insertAt === null || index === dragIndex) return 0;
-  const shift = blockHeight + RESPONSE_LIST_GAP;
-  if (dragIndex < insertAt && index > dragIndex && index < insertAt) return -shift;
-  if (dragIndex > insertAt && index >= insertAt && index < dragIndex) return shift;
-  return 0;
+function paramLocationLabel(inLoc: string | undefined): string {
+  switch (inLoc) {
+    case "query":
+      return "Query";
+    case "path":
+      return "Path";
+    case "header":
+      return "Header";
+    case "cookie":
+      return "Cookie";
+    default:
+      return inLoc ?? "Param";
+  }
+}
+
+function paramTitle(param: ParameterObject): string {
+  if (typeof param.$ref === "string") {
+    const short = param.$ref.split("/").pop();
+    return short ?? param.$ref;
+  }
+  return param.name?.trim() || "(unnamed)";
+}
+
+function paramSummary(param: ParameterObject): string {
+  const type = getParameterType(param) || "no type";
+  const required = param.required ? " · required" : "";
+  const description = param.description?.trim();
+  if (description) return `${type}${required} · ${description}`;
+  return `${type}${required}`;
+}
+
+function ParametersList({
+  parameters,
+  onUpdate,
+  onUpdateType,
+  onRemove,
+  onReorder,
+}: {
+  parameters: ParameterObject[];
+  onUpdate: (index: number, p: Partial<ParameterObject>) => void;
+  onUpdateType: (index: number, type: string) => void;
+  onRemove: (index: number) => void;
+  onReorder: (from: number, to: number) => void;
+}) {
+  return (
+    <ReorderableBlockList
+      items={parameters}
+      getKey={paramKey}
+      onReorder={onReorder}
+      renderHeader={(param, { isOpen, toggle, index }) => (
+        <>
+          <button type="button" className="editor-block-toggle" onClick={toggle}>
+            <Chevron open={isOpen} />
+            <span className="editor-block-title mono">{paramTitle(param)}</span>
+            <span className="editor-block-badge">{paramLocationLabel(param.in)}</span>
+            <span className="editor-block-summary">{paramSummary(param)}</span>
+          </button>
+          <RemoveButton onClick={() => onRemove(index)} />
+        </>
+      )}
+      renderBody={(param, index) => (
+        <>
+          <div className="card-row">
+            <Field label="Name">
+              <TextInput
+                value={param.name ?? ""}
+                onChange={(v) => onUpdate(index, { name: v })}
+                mono
+              />
+            </Field>
+            <Field label="Location">
+              <Select
+                value={param.in ?? "query"}
+                onChange={(v) => onUpdate(index, { in: v })}
+                options={PARAM_LOCATIONS}
+              />
+            </Field>
+            <Field label="Data type">
+              <Select
+                value={getParameterType(param)}
+                onChange={(v) => onUpdateType(index, v)}
+                options={SCHEMA_TYPES}
+              />
+            </Field>
+          </div>
+          <div className="card-row">
+            <Field label="Description">
+              <TextInput
+                value={param.description ?? ""}
+                onChange={(v) => onUpdate(index, { description: v })}
+              />
+            </Field>
+            <Checkbox
+              checked={param.required ?? false}
+              onChange={(v) => onUpdate(index, { required: v })}
+              label="Required"
+            />
+          </div>
+        </>
+      )}
+    />
+  );
 }
 
 function ResponsesList({
@@ -393,268 +460,44 @@ function ResponsesList({
   onRemove: (code: string) => void;
   onReorder: (from: number, to: number) => void;
 }) {
-  const [openCodes, setOpenCodes] = useState<Set<string>>(() => new Set());
-  const [dragIndex, setDragIndex] = useState<number | null>(null);
-  const [insertAt, setInsertAt] = useState<number | null>(null);
-  const [dropLineY, setDropLineY] = useState<number | null>(null);
-  const prevOrderRef = useRef(order);
-  const listRef = useRef<HTMLDivElement>(null);
-  const dragBlockHeightRef = useRef(0);
-  const flipTopsRef = useRef<Map<string, number> | null>(null);
-  const dragRafRef = useRef<number | null>(null);
-  const pendingClientYRef = useRef(0);
-
-  useEffect(() => {
-    const prevOrder = prevOrderRef.current;
-    setOpenCodes((prev) => {
-      const next = new Set(prev);
-      for (const code of prevOrder) {
-        if (!order.includes(code)) next.delete(code);
-      }
-      for (const code of order) {
-        if (!prevOrder.includes(code)) next.add(code);
-      }
-      return next;
-    });
-    prevOrderRef.current = order;
-  }, [order.join("|")]);
-
-  useLayoutEffect(() => {
-    const first = flipTopsRef.current;
-    if (!first) return;
-    flipTopsRef.current = null;
-
-    const list = listRef.current;
-    if (!list) return;
-
-    for (const code of order) {
-      const block = list.querySelector<HTMLElement>(`[data-response-block][data-code="${code}"]`);
-      const wrap = block?.parentElement as HTMLElement | null;
-      if (!wrap) continue;
-      const firstTop = first.get(code);
-      if (firstTop === undefined) continue;
-      const lastTop = wrap.offsetTop;
-      const dy = firstTop - lastTop;
-      if (Math.abs(dy) < 1) continue;
-
-      wrap.style.transition = "none";
-      wrap.style.transform = `translateY(${dy}px)`;
-      requestAnimationFrame(() => {
-        wrap.style.transition = "transform 0.38s cubic-bezier(0.22, 1, 0.36, 1)";
-        wrap.style.transform = "";
-        const cleanup = () => {
-          wrap.style.transition = "";
-          wrap.removeEventListener("transitionend", cleanup);
-        };
-        wrap.addEventListener("transitionend", cleanup);
-      });
-    }
-  }, [order.join("|")]);
-
-  const toggleOpen = (code: string) => {
-    setOpenCodes((prev) => {
-      const next = new Set(prev);
-      if (next.has(code)) next.delete(code);
-      else next.add(code);
-      return next;
-    });
-  };
-
-  const clearDragState = () => {
-    if (dragRafRef.current !== null) {
-      cancelAnimationFrame(dragRafRef.current);
-      dragRafRef.current = null;
-    }
-    setDragIndex(null);
-    setInsertAt(null);
-    setDropLineY(null);
-  };
-
-  const updateDropLineY = (nextInsert: number) => {
-    const list = listRef.current;
-    if (!list) return;
-    const listTop = list.getBoundingClientRect().top;
-    const wraps = Array.from(list.querySelectorAll<HTMLElement>(".response-block-wrap"));
-    if (wraps.length === 0) {
-      setDropLineY(0);
-      return;
-    }
-    if (nextInsert <= 0) {
-      setDropLineY(wraps[0].getBoundingClientRect().top - listTop - 2);
-      return;
-    }
-    if (nextInsert >= wraps.length) {
-      const last = wraps[wraps.length - 1];
-      setDropLineY(last.getBoundingClientRect().bottom - listTop + 2);
-      return;
-    }
-    setDropLineY(wraps[nextInsert].getBoundingClientRect().top - listTop - 2);
-  };
-
-  useLayoutEffect(() => {
-    if (insertAt === null || dragIndex === null) return;
-    updateDropLineY(insertAt);
-  }, [insertAt, dragIndex, order.join("|")]);
-
-  const updateInsertAt = (clientY: number) => {
-    const list = listRef.current;
-    if (!list) return;
-    const blocks = Array.from(list.querySelectorAll<HTMLElement>("[data-response-block]"));
-    let nextInsert = order.length;
-    for (let i = 0; i < blocks.length; i++) {
-      const rect = blocks[i].getBoundingClientRect();
-      if (clientY < rect.top + rect.height / 2) {
-        nextInsert = i;
-        break;
-      }
-    }
-    setInsertAt((prev) => (prev === nextInsert ? prev : nextInsert));
-    updateDropLineY(nextInsert);
-  };
-
-  const scheduleInsertUpdate = (clientY: number) => {
-    pendingClientYRef.current = clientY;
-    if (dragRafRef.current !== null) return;
-    dragRafRef.current = requestAnimationFrame(() => {
-      dragRafRef.current = null;
-      updateInsertAt(pendingClientYRef.current);
-    });
-  };
-
-  const captureFlipPositions = () => {
-    const list = listRef.current;
-    if (!list) return;
-    const tops = new Map<string, number>();
-    for (const code of order) {
-      const block = list.querySelector<HTMLElement>(`[data-response-block][data-code="${code}"]`);
-      const wrap = block?.parentElement as HTMLElement | null;
-      if (wrap) tops.set(code, wrap.offsetTop);
-    }
-    flipTopsRef.current = tops;
-  };
-
-  const handleDrop = (from: number) => {
-    if (Number.isNaN(from) || insertAt === null) {
-      clearDragState();
-      return;
-    }
-    if (insertAt === from || insertAt === from + 1) {
-      clearDragState();
-      return;
-    }
-    const to = insertAt > from ? insertAt - 1 : insertAt;
-    captureFlipPositions();
-    onReorder(from, to);
-    clearDragState();
-  };
-
-  const isDragging = dragIndex !== null;
-  const dragBlockHeight = dragBlockHeightRef.current;
+  const items = order
+    .map((code) => ({ code, response: responses[code] }))
+    .filter((item): item is { code: string; response: ResponseObject } => !!item.response);
 
   return (
-    <div
-      ref={listRef}
-      className={`response-block-list${isDragging ? " is-dragging" : ""}`}
-      style={
-        isDragging && dropLineY !== null
-          ? ({ "--response-drop-line-y": `${dropLineY}px` } as React.CSSProperties)
-          : undefined
-      }
-      onDragOver={(e) => {
-        if (dragIndex === null) return;
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "move";
-        scheduleInsertUpdate(e.clientY);
-      }}
-      onDragLeave={(e) => {
-        if (!listRef.current?.contains(e.relatedTarget as Node)) {
-          setInsertAt(null);
-          setDropLineY(null);
-        }
-      }}
-      onDrop={(e) => {
-        e.preventDefault();
-        const from = Number(e.dataTransfer.getData("application/x-response-index"));
-        handleDrop(from);
-      }}
-    >
-      {order.map((code, index) => {
-        const resp = responses[code];
-        if (!resp) return null;
-        const isOpen = openCodes.has(code) && dragIndex !== index;
-        const isDraggingBlock = dragIndex === index;
-        const shiftY = getResponseShiftY(index, dragIndex, insertAt, dragBlockHeight);
-
-        return (
-          <div
-            key={code}
-            className={`response-block-wrap${isDragging ? " is-shifting" : ""}`}
-            style={shiftY ? { transform: `translateY(${shiftY}px)` } : undefined}
-          >
-            <div
-              data-response-block
-              data-code={code}
-              className={`response-block${isOpen ? " is-open" : ""}${isDraggingBlock ? " is-dragging" : ""}`}
-            >
-              <div className="response-block-header">
-                <div
-                  role="button"
-                  tabIndex={0}
-                  className="response-drag-handle"
-                  title="Drag to reorder"
-                  draggable
-                  onDragStart={(e) => {
-                    const wrap = (e.currentTarget as HTMLElement).closest(".response-block-wrap");
-                    dragBlockHeightRef.current = wrap?.getBoundingClientRect().height ?? 52;
-                    setDragIndex(index);
-                    setInsertAt(index);
-                    updateDropLineY(index);
-                    e.dataTransfer.effectAllowed = "move";
-                    e.dataTransfer.setData("application/x-response-index", String(index));
-                    const img = new Image();
-                    img.src =
-                      "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
-                    e.dataTransfer.setDragImage(img, 0, 0);
-                  }}
-                  onDragEnd={clearDragState}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") e.preventDefault();
-                  }}
-                >
-                  ⋮⋮
-                </div>
-                <button
-                  type="button"
-                  className="response-block-toggle"
-                  onClick={() => toggleOpen(code)}
-                >
-                  <Chevron open={isOpen} />
-                  <span className="response-block-code mono">{code}</span>
-                  <span className="response-block-summary">
-                    {resp.description?.trim() || "No description"}
-                  </span>
-                </button>
-                <RemoveButton onClick={() => onRemove(code)} />
-              </div>
-              <div className="response-block-body">
-                <div className="card-row">
-                  <Field label="Status Code">
-                    <StatusCodeInput code={code} onRename={(v) => onRename(code, v)} />
-                  </Field>
-                  <Field label="Description">
-                    <TextInput
-                      value={resp.description ?? ""}
-                      onChange={(v) => onUpdate(code, { description: v })}
-                    />
-                  </Field>
-                </div>
-                <ResponseJsonEditor response={resp} onChange={(r) => onUpdate(code, r)} />
-              </div>
-            </div>
+    <ReorderableBlockList
+      items={items}
+      getKey={(item) => item.code}
+      onReorder={onReorder}
+      renderHeader={({ code, response }, { isOpen, toggle }) => (
+        <>
+          <button type="button" className="editor-block-toggle" onClick={toggle}>
+            <Chevron open={isOpen} />
+            <span className="editor-block-title mono">{code}</span>
+            <span className="editor-block-summary">
+              {response.description?.trim() || "No description"}
+            </span>
+          </button>
+          <RemoveButton onClick={() => onRemove(code)} />
+        </>
+      )}
+      renderBody={({ code, response }) => (
+        <>
+          <div className="card-row">
+            <Field label="Status Code">
+              <StatusCodeInput code={code} onRename={(v) => onRename(code, v)} />
+            </Field>
+            <Field label="Description">
+              <TextInput
+                value={response.description ?? ""}
+                onChange={(v) => onUpdate(code, { description: v })}
+              />
+            </Field>
           </div>
-        );
-      })}
-    </div>
+          <ResponseJsonEditor response={response} onChange={(r) => onUpdate(code, r)} />
+        </>
+      )}
+    />
   );
 }
 

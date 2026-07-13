@@ -9,6 +9,7 @@ import type {
 } from "../types";
 import { HTTP_METHODS, type HttpMethod } from "../types";
 import { detectSpecVersion, tagSpecVersion } from "./specVersion";
+import { extractSwagger2Example } from "./mediaExamples";
 
 type Json = Record<string, unknown>;
 
@@ -126,7 +127,7 @@ function normalizeOperation(
     delete next.requestBody;
   }
 
-  if (next.responses && !options.swagger2) {
+  if (next.responses) {
     const responses: Record<string, ResponseObject> = {};
     for (const [code, resp] of Object.entries(next.responses)) {
       responses[String(code)] = normalizeResponse(resp as ResponseObject & Json, doc);
@@ -276,33 +277,50 @@ export function buildExampleFromSchema(schema: SchemaObject): Record<string, unk
 }
 
 function normalizeResponse(resp: ResponseObject & Json, doc?: Json): ResponseObject {
+  const importedExample = extractSwagger2Example(resp.examples);
+
   if (resp.content) {
     const content = { ...resp.content };
     for (const [mediaType, media] of Object.entries(content)) {
-      if (!media?.schema || !doc) continue;
-      const resolved = resolveSchemaRefs(media.schema as SchemaObject, doc);
-      const example = buildExampleFromSchema(resolved);
+      if (!media) continue;
+      const resolved =
+        media.schema && doc
+          ? resolveSchemaRefs(media.schema as SchemaObject, doc)
+          : (media.schema as SchemaObject | undefined);
+      const example =
+        media.example ??
+        importedExample ??
+        (resolved ? buildExampleFromSchema(resolved) : undefined) ??
+        (resolved?.example !== undefined ? resolved.example : undefined);
       content[mediaType] = {
         ...media,
-        schema: resolved,
-        ...(example && !media.example ? { example } : {}),
+        ...(resolved ? { schema: resolved } : {}),
+        ...(example !== undefined ? { example } : {}),
       };
     }
-    return { ...resp, content };
+    const next = { ...resp, content } as ResponseObject & Json;
+    delete next.examples;
+    delete next.schema;
+    return next;
   }
 
   const legacySchema = resp.schema as SchemaObject | undefined;
-  if (!legacySchema) return resp;
+  if (!legacySchema && importedExample === undefined) return resp;
 
-  const resolved = doc ? resolveSchemaRefs(legacySchema, doc) : legacySchema;
-  const example = buildExampleFromSchema(resolved);
+  const resolved =
+    legacySchema && doc ? resolveSchemaRefs(legacySchema, doc) : legacySchema;
+  const example =
+    importedExample ??
+    (resolved ? buildExampleFromSchema(resolved) : undefined) ??
+    (resolved?.example !== undefined ? resolved.example : undefined);
 
-  const next = { ...resp };
-  delete (next as Json).schema;
+  const next = { ...resp } as ResponseObject & Json;
+  delete next.schema;
+  delete next.examples;
   next.content = {
     "application/json": {
-      schema: resolved,
-      ...(example ? { example } : {}),
+      ...(resolved ? { schema: resolved } : {}),
+      ...(example !== undefined ? { example } : {}),
     },
   };
   return next;

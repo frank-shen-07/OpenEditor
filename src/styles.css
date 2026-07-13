@@ -1690,52 +1690,65 @@ code.mono {
   border-radius: 4px;
 }
 
-.response-block-list {
+.response-block-list,
+.editor-block-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
   position: relative;
 }
 
-.response-block-list.is-dragging {
+.response-block-list.is-dragging,
+.editor-block-list.is-dragging {
   cursor: grabbing;
+  user-select: none;
+  touch-action: none;
 }
 
-.response-block-list.is-dragging::after {
+.response-block-list.is-dragging::after,
+.editor-block-list.is-dragging::after {
   content: "";
   position: absolute;
   left: 8px;
   right: 8px;
-  top: var(--response-drop-line-y, 0);
+  top: var(--editor-drop-line-y, var(--response-drop-line-y, 0));
   height: 3px;
   border-radius: 999px;
   background: var(--link);
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--link) 35%, transparent),
-    0 0 16px color-mix(in srgb, var(--link) 60%, transparent);
+    0 0 18px color-mix(in srgb, var(--link) 65%, transparent);
   pointer-events: none;
-  z-index: 3;
+  z-index: 5;
   transform: translateY(-50%);
-  transition: top 0.22s cubic-bezier(0.22, 1, 0.36, 1);
-  animation: response-drop-glow 1s ease-in-out infinite;
+  transition: top 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+  animation: response-drop-glow 0.9s ease-in-out infinite;
 }
 
-.response-block-wrap {
+.response-block-wrap,
+.editor-block-wrap {
   display: flex;
   flex-direction: column;
   gap: 0;
   will-change: transform;
 }
 
-.response-block-wrap.is-shifting {
-  transition: transform 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+.response-block-wrap.is-shifting,
+.editor-block-wrap.is-shifting {
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.response-block-wrap.is-dragging-active,
+.editor-block-wrap.is-dragging-active {
+  transition: none;
+  z-index: 4;
 }
 
 @keyframes response-drop-glow {
   0%,
   100% {
-    opacity: 0.75;
-    transform: translateY(-50%) scaleX(0.94);
+    opacity: 0.72;
+    transform: translateY(-50%) scaleX(0.92);
   }
   50% {
     opacity: 1;
@@ -1743,31 +1756,43 @@ code.mono {
   }
 }
 
-.response-block {
+.response-block,
+.editor-block {
   background: var(--bg-elevated);
   border: 1px solid var(--border-subtle);
   border-radius: 6px;
   overflow: hidden;
+  cursor: grab;
+  touch-action: pan-y;
   transition:
-    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 0.24s ease,
-    box-shadow 0.28s cubic-bezier(0.22, 1, 0.36, 1),
-    border-color 0.24s ease;
+    transform 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.28s ease,
+    box-shadow 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.28s ease;
 }
 
-.response-block.is-dragging {
+.response-block:has(button:hover, input:hover, textarea:hover, select:hover),
+.editor-block:has(button:hover, input:hover, textarea:hover, select:hover) {
+  cursor: grab;
+}
+
+.response-block.is-dragging,
+.editor-block.is-dragging {
+  cursor: grabbing;
   opacity: 1;
-  transform: scale(1.02) rotate(-0.4deg);
-  border-color: color-mix(in srgb, var(--link) 75%, var(--border-subtle));
+  transform: scale(1.025) rotate(-0.35deg);
+  border-color: color-mix(in srgb, var(--link) 78%, var(--border-subtle));
   box-shadow:
-    0 14px 32px rgba(0, 0, 0, 0.24),
-    0 0 0 1px color-mix(in srgb, var(--link) 40%, transparent),
-    0 0 24px color-mix(in srgb, var(--link) 18%, transparent);
+    0 18px 40px rgba(0, 0, 0, 0.28),
+    0 0 0 1px color-mix(in srgb, var(--link) 42%, transparent),
+    0 0 28px color-mix(in srgb, var(--link) 22%, transparent);
   z-index: 2;
   position: relative;
+  touch-action: none;
 }
 
-.response-block:not(.is-open) .response-block-body {
+.response-block:not(.is-open) .response-block-body,
+.editor-block:not(.is-open) .editor-block-body {
   max-height: 0;
   padding-top: 0;
   padding-bottom: 0;
@@ -1777,7 +1802,8 @@ code.mono {
   pointer-events: none;
 }
 
-.response-block.is-open .response-block-body {
+.response-block.is-open .response-block-body,
+.editor-block.is-open .editor-block-body {
   max-height: 2000px;
   opacity: 1;
   transition:
@@ -1787,48 +1813,56 @@ code.mono {
     border-top-width 0.22s ease;
 }
 
-.response-block-list.is-dragging .response-block:not(.is-dragging) {
-  opacity: 0.88;
+.response-block-list.is-dragging .response-block:not(.is-dragging),
+.editor-block-list.is-dragging .editor-block:not(.is-dragging) {
+  opacity: 0.9;
 }
 
-.response-block-header {
+.response-block-header,
+.editor-block-header {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
 }
 
-.response-drag-handle {
+.response-drag-handle,
+.editor-drag-handle {
   flex: 0 0 auto;
   padding: 4px 6px;
-  border: 1px solid transparent;
   border-radius: 4px;
-  background: transparent;
   color: var(--text-muted);
   font-size: 14px;
   line-height: 1;
   letter-spacing: -0.08em;
-  cursor: grab;
-  user-select: none;
-  transition:
-    background 0.15s ease,
-    color 0.15s ease,
-    border-color 0.15s ease,
-    transform 0.15s ease;
+  pointer-events: none;
+  opacity: 0.55;
+  transition: opacity 0.2s ease, color 0.2s ease;
 }
 
-.response-drag-handle:hover {
-  background: var(--bg-input);
-  border-color: var(--border-subtle);
+.response-block:hover .response-drag-handle,
+.response-block.is-dragging .response-drag-handle,
+.editor-block:hover .editor-drag-handle,
+.editor-block.is-dragging .editor-drag-handle {
+  opacity: 1;
   color: var(--link);
 }
 
-.response-drag-handle:active {
-  cursor: grabbing;
-  transform: scale(1.05);
+.response-block button,
+.response-block input,
+.response-block textarea,
+.response-block select,
+.response-block label,
+.editor-block button,
+.editor-block input,
+.editor-block textarea,
+.editor-block select,
+.editor-block label {
+  cursor: auto;
 }
 
-.response-block-toggle {
+.response-block-toggle,
+.editor-block-toggle {
   flex: 1;
   display: flex;
   align-items: center;
@@ -1843,12 +1877,27 @@ code.mono {
   cursor: pointer;
 }
 
-.response-block-code {
+.response-block-code,
+.editor-block-title {
   flex: 0 0 auto;
   font-weight: 700;
 }
 
-.response-block-summary {
+.editor-block-badge {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--link);
+  background: color-mix(in srgb, var(--link) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--link) 28%, transparent);
+}
+
+.response-block-summary,
+.editor-block-summary {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -1857,12 +1906,14 @@ code.mono {
   color: var(--text-secondary);
 }
 
-.response-block-body {
+.response-block-body,
+.editor-block-body {
   padding: 10px 12px 12px;
   border-top: 1px solid var(--border-subtle);
 }
 
-.response-block-body .card-row {
+.response-block-body .card-row,
+.editor-block-body .card-row {
   margin-bottom: 10px;
 }
 
