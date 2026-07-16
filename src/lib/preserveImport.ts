@@ -13,18 +13,21 @@ import {
   expandOrderedResponseKeysInYaml,
 } from "./responseOrder";
 import { getSpecVersion } from "./specVersion";
+import { captureXComponentKeys, computeXComponentAdditions } from "./xComponents";
 
 export interface ImportSnapshot {
   pathKeys: string[];
   operationKeys: string[];
   schemaKeys: string[];
   tagNames: string[];
+  xComponentKeys?: Record<string, string[]>;
 }
 
 export interface DocumentAdditions {
   paths?: Record<string, PathItemObject>;
   tags?: TagObject[];
   components?: { schemas?: Record<string, SchemaObject> };
+  xComponents?: Record<string, Record<string, unknown>>;
 }
 
 export interface PreserveImportMeta extends OpenEditorMeta {
@@ -86,6 +89,7 @@ export function captureSnapshot(doc: OpenAPIDocument): ImportSnapshot {
     operationKeys,
     schemaKeys: Object.keys(doc.components?.schemas ?? {}),
     tagNames: (doc.tags ?? []).map((t) => t.name).filter((n): n is string => !!n),
+    xComponentKeys: captureXComponentKeys(doc),
   };
 }
 
@@ -109,14 +113,21 @@ export function hydrateImportSnapshot(
 ): OpenAPIDocument {
   if (!isPreserveImport(doc) || !sourceYaml) return doc;
   const existing = getImportSnapshot(doc);
-  if (existing?.operationKeys?.length) return doc;
+  if (existing?.operationKeys?.length && existing?.xComponentKeys) return doc;
   const { snapshot } = parseImport(sourceYaml);
   return syncImportAdditions(
     {
       ...doc,
       [OPENEDITOR_KEY]: {
         ...getPreserveMeta(doc),
-        importSnapshot: snapshot,
+        importSnapshot: {
+          ...existing,
+          ...snapshot,
+          operationKeys: existing?.operationKeys?.length
+            ? existing.operationKeys
+            : snapshot.operationKeys,
+          xComponentKeys: existing?.xComponentKeys ?? snapshot.xComponentKeys,
+        },
       },
     },
     snapshot
@@ -246,11 +257,14 @@ export function computeAdditions(
     (t) => t.name && !snapshot.tagNames.includes(t.name)
   );
 
+  const additionXComponents = computeXComponentAdditions(doc, snapshot.xComponentKeys);
+
   return {
     paths: Object.keys(additionPaths).length > 0 ? additionPaths : undefined,
     tags: additionTags.length > 0 ? additionTags : undefined,
     components:
       Object.keys(additionSchemas).length > 0 ? { schemas: additionSchemas } : undefined,
+    xComponents: Object.keys(additionXComponents).length > 0 ? additionXComponents : undefined,
   };
 }
 
@@ -258,7 +272,8 @@ function emptyAdditions(additions: DocumentAdditions): boolean {
   return (
     Object.keys(additions.paths ?? {}).length === 0 &&
     Object.keys(additions.components?.schemas ?? {}).length === 0 &&
-    (additions.tags ?? []).length === 0
+    (additions.tags ?? []).length === 0 &&
+    Object.keys(additions.xComponents ?? {}).length === 0
   );
 }
 
@@ -310,6 +325,10 @@ export function buildExportYaml(sourceYaml: string, doc: OpenAPIDocument): strin
     result = insertTopLevelBlock(result, "tags:", tagsYaml);
   }
 
+  if (additions.xComponents && Object.keys(additions.xComponents).length > 0) {
+    result = insertXComponentAdditions(result, additions.xComponents);
+  }
+
   const addedSchemas = additions.components?.schemas;
   if (addedSchemas && Object.keys(addedSchemas).length > 0) {
     const schemaYaml = dump(
@@ -359,6 +378,76 @@ function insertTopLevelBlock(sourceYaml: string, keyPrefix: string, blockYaml: s
     return lines.join("\n");
   }
   return `${sourceYaml.trimEnd()}\n\n${blockYaml}\n`;
+}
+
+/** Append new entries under an existing x-components category (prim, group, body, …). */
+export function insertXComponentAdditions(
+  sourceYaml: string,
+  additions: Record<string, Record<string, unknown>>
+): string {
+  let result = sourceYaml;
+  for (const [category, entries] of Object.entries(additions)) {
+    const entryYaml = dump(entries, { lineWidth: 120, sortKeys: false, noRefs: false }).trimEnd();
+    const indented = entryYaml
+      .split("\n")
+      .map((line) => (line ? `    ${line}` : ""))
+      .join("\n");
+    result = insertIntoXComponentCategory(result, category, indented);
+  }
+  return result;
+}
+
+function insertIntoXComponentCategory(
+  sourceYaml: string,
+  category: string,
+  indentedEntries: string
+): string {
+  const lines = sourceYaml.split("\n");
+  const categoryLine = `  ${category}:`;
+  const categoryIdx = lines.findIndex((line) => line === categoryLine);
+
+  if (categoryIdx < 0) {
+    const xIdx = lines.findIndex((line) => line === "x-components:");
+    const block = `  ${category}:\n${indentedEntries}`;
+    if (xIdx >= 0) {
+      let insertAt = xIdx + 1;
+      for (let i = xIdx + 1; i < lines.length; i++) {
+        const line = lines[i];
+        if (/^paths:\s*$/.test(line)) {
+          insertAt = i;
+          break;
+        }
+        if (line.trim() !== "" && !/^\s/.test(line) && /^[A-Za-z0-9_"'-]+:/.test(line)) {
+          insertAt = i;
+          break;
+        }
+      }
+      lines.splice(insertAt, 0, block, "");
+      return lines.join("\n");
+    }
+    return `${sourceYaml.trimEnd()}\n\nx-components:\n${block}\n`;
+  }
+
+  let insertAt = categoryIdx + 1;
+  for (let i = categoryIdx + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (/^  [A-Za-z0-9_]+:\s*$/.test(line)) {
+      insertAt = i;
+      break;
+    }
+    if (/^paths:\s*$/.test(line)) {
+      insertAt = i;
+      break;
+    }
+    if (line.trim() !== "" && !/^\s/.test(line) && /^[A-Za-z0-9_"'-]+:/.test(line)) {
+      insertAt = i;
+      break;
+    }
+    insertAt = i + 1;
+  }
+
+  lines.splice(insertAt, 0, indentedEntries, "");
+  return lines.join("\n");
 }
 
 function pathExistsInSourceYaml(sourceYaml: string, path: string): boolean {
@@ -425,7 +514,7 @@ function encodePathItemForYamlDump(item: PathItemObject): PathItemObject {
 
 function formatPathMethodsInsertion(item: PathItemObject, doc: OpenAPIDocument): string {
   const version = getSpecVersion(doc);
-  const formatted = encodePathItemForYamlDump(formatPathItemForYamlExport(item, version));
+  const formatted = encodePathItemForYamlDump(formatPathItemForYamlExport(item, version, doc));
   const itemYaml = expandOrderedResponseKeysInYaml(
     dump(formatted, { lineWidth: 120, sortKeys: false, noRefs: true }).trimEnd()
   );
@@ -472,5 +561,8 @@ export function reanchorLoadedDocument(
     components: content.components ?? anchored.components,
     servers: content.servers ?? anchored.servers,
   };
+  if (content["x-components"]) {
+    merged["x-components"] = content["x-components"];
+  }
   return syncImportAdditions(merged, snapshot);
 }

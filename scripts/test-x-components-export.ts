@@ -53,6 +53,21 @@ x-components:
       name: session
       required: true
       type: string
+  body:
+    UniverseCreate:
+      in: body
+      name: body
+      required: true
+      schema:
+        type: object
+        required:
+          - universeName
+          - universeData
+        properties:
+          universeName:
+            type: string
+          universeData:
+            type: object
   return:
     SimulationStatus:
       type: object
@@ -67,11 +82,26 @@ x-components:
           type: string
     Empty:
       type: object
+  group:
+    User:
+      type: object
+      properties:
+        name:
+          type: string
 `;
 
 const { doc, sourceYaml } = parseImport(source);
 
-const designedOp = normalizeDocument({
+const connectionPostBody = {
+  type: "object" as const,
+  required: ["displayName", "supportLevel"],
+  properties: {
+    displayName: { type: "string" },
+    supportLevel: { type: "integer" },
+  },
+};
+
+const designedPath = normalizeDocument({
   ...doc,
   paths: {
     ...doc.paths,
@@ -79,7 +109,6 @@ const designedOp = normalizeDocument({
       get: {
         tags: ["Iteration 2 (Designed)"],
         summary: "Lists all social support connections in the simulation",
-        description: "Lists all social support connections in the simulation ordered by connectionId.",
         parameters: [
           { in: "header", name: "session", required: true, type: "string" },
           { in: "path", name: "simulationId", required: true, type: "integer" },
@@ -116,25 +145,25 @@ const designedOp = normalizeDocument({
           },
         },
       },
-      delete: {
+      post: {
         tags: ["Iteration 2 (Designed)"],
-        summary: "Deletes a social support connection",
+        summary: "Creates a new social support connection",
         parameters: [
           { in: "header", name: "session", required: true, type: "string" },
           { in: "path", name: "simulationId", required: true, type: "integer" },
-          { in: "path", name: "connectionId", required: true, type: "integer" },
         ],
-        responses: {
-          "200": {
-            description: "OK",
-            content: {
-              "application/json": {
-                schema: { type: "object", properties: {} },
-              },
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: connectionPostBody,
             },
           },
-          "401": {
-            description: "UNAUTHORISED",
+        },
+        responses: {
+          "200": { description: "OK" },
+          "400": {
+            description: "Bad request",
             content: {
               "application/json": {
                 schema: {
@@ -150,21 +179,55 @@ const designedOp = normalizeDocument({
           },
         },
       },
+      delete: {
+        tags: ["Iteration 2 (Designed)"],
+        summary: "Deletes a social support connection",
+        parameters: [
+          { in: "header", name: "session", required: true, type: "string" },
+          { in: "path", name: "simulationId", required: true, type: "integer" },
+        ],
+        responses: {
+          "200": {
+            description: "OK",
+            content: {
+              "application/json": {
+                schema: { type: "object", properties: {} },
+              },
+            },
+          },
+        },
+      },
     },
   },
 }).paths?.["/simulations/{simulationId}/connections"];
 
-if (!designedOp) throw new Error("missing designed path");
+if (!designedPath) throw new Error("missing designed path");
 
-const withNewPath = mergeImportAnchor(doc, {
+const withNewGroupSchema = mergeImportAnchor(doc, {
   ...doc,
   paths: {
     ...doc.paths,
-    "/simulations/{simulationId}/connections": designedOp,
+    "/simulations/{simulationId}/connections": designedPath,
+  },
+  "x-components": {
+    ...(doc["x-components"] as object),
+    group: {
+      ...((doc["x-components"] as { group?: Record<string, unknown> })?.group ?? {}),
+      Connection:
+        {
+          type: "object",
+          properties: {
+            connectionId: { type: "integer" },
+            displayName: { type: "string" },
+            supportLevel: { type: "integer" },
+            createdAt: { type: "integer" },
+          },
+        },
+    },
   },
 });
 
-const exported = buildExportYaml(sourceYaml, withNewPath);
+const exported = buildExportYaml(sourceYaml, withNewGroupSchema);
 const connectionsBlock = exported.slice(exported.indexOf("/simulations/{simulationId}/connections:"));
 
 const checks: Array<[string, boolean]> = [
@@ -172,8 +235,9 @@ const checks: Array<[string, boolean]> = [
   ["simulationId path ref", connectionsBlock.includes("$ref: '#/x-components/path/SimulationId'")],
   ["401 error ref", connectionsBlock.includes("$ref: '#/x-components/return/Error'")],
   ["empty delete ref", connectionsBlock.includes("$ref: '#/x-components/return/Empty'")],
-  ["inline session header absent", !connectionsBlock.includes("name: session\n          required: true\n          type: string")],
-  ["custom connectionId stays inline", connectionsBlock.includes("name: connectionId")],
+  ["POST body stays inline", connectionsBlock.includes("displayName:") && connectionsBlock.includes("supportLevel:")],
+  ["POST body not UniverseCreate", !connectionsBlock.includes("$ref: '#/x-components/body/UniverseCreate'")],
+  ["new group schema exported", exported.includes("Connection:") && exported.includes("connectionId:")],
 ];
 
 for (const [label, ok] of checks) {
@@ -184,14 +248,11 @@ for (const [label, ok] of checks) {
   }
 }
 
-console.log("OK - designed routes export x-component $refs");
+console.log("OK - designed routes export x-component $refs and preserve custom bodies");
 console.log(
   dump(
     {
-      sample: connectionsBlock
-        .split("\n")
-        .slice(0, 40)
-        .join("\n"),
+      postParameters: connectionsBlock.match(/post:[\s\S]*?responses:/)?.[0],
     },
     { lineWidth: 120 }
   )

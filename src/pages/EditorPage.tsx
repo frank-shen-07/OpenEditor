@@ -19,12 +19,18 @@ import { InfoEditor } from "../components/InfoEditor";
 import { ServersEditor } from "../components/ServersEditor";
 import { PathsEditor } from "../components/PathsEditor";
 import { SchemasEditor } from "../components/SchemasEditor";
+import { XComponentsEditor } from "../components/XComponentsEditor";
 import { YamlView } from "../components/YamlView";
 import { DocumentsPanel } from "../components/DocumentsPanel";
 import { Logo, ThemeToggle } from "../components/Chrome";
 import { UserMenu } from "../components/UserMenu";
 import { Chevron } from "../components/ui";
 import { useTheme } from "../hooks/useTheme";
+
+function hasXComponents(doc: OpenAPIDocument): boolean {
+  const root = doc["x-components"];
+  return !!root && typeof root === "object" && !Array.isArray(root);
+}
 
 export function EditorPage() {
   const { user, loading: authLoading, authAvailable } = useAuth();
@@ -270,6 +276,9 @@ export function EditorPage() {
         <PathsEditor doc={doc} onChange={updateDocFromVisual} />
         {Object.keys(doc.components?.schemas ?? {}).length > 0 && (
           <SchemasEditor doc={doc} onChange={updateDocFromVisual} />
+        )}
+        {hasXComponents(doc) && (
+          <XComponentsEditor doc={doc} onChange={updateDocFromVisual} />
         )}
 
         <section className={`models yaml-section${yamlOpen ? " is-open" : ""}`}>

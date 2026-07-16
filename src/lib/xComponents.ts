@@ -9,10 +9,11 @@ import { OP_OPENEDITOR_KEY } from "./responseOrder";
 
 type Json = Record<string, unknown>;
 
-const X_COMPONENT_PARAM_CATEGORIES = new Set(["path", "header", "body", "query"]);
+const X_COMPONENT_PARAM_CATEGORIES = new Set(["path", "header", "query"]);
 
 export interface XComponentCatalog {
   parameters: Map<string, string>;
+  bodySchemas: Map<string, string>;
   errorResponseRef: string | null;
   emptyResponseRef: string | null;
 }
@@ -30,6 +31,41 @@ function paramMatchKey(param: ParameterObject): string {
   return `${param.in ?? ""}|${param.name ?? ""}|${normalizedType}|${param.required === true}`;
 }
 
+function bodySchemaFromParam(param: ParameterObject): SchemaObject | undefined {
+  if (param.schema) return param.schema as SchemaObject;
+  if (param.in === "body" && typeof param.type === "string") {
+    return { type: param.type };
+  }
+  return undefined;
+}
+
+/** Stable comparison key for body parameter schemas (ignores examples/descriptions). */
+export function schemaMatchKey(schema: SchemaObject | undefined): string | null {
+  if (!schema) return null;
+
+  const normalize = (value: SchemaObject): SchemaObject => {
+    const next: SchemaObject = {};
+    if (value.type) next.type = value.type;
+    if (value.format) next.format = value.format;
+    if (value.enum) next.enum = [...value.enum].sort();
+    if (Array.isArray(value.required)) next.required = [...value.required].sort();
+    if (value.properties && typeof value.properties === "object") {
+      const properties: Record<string, SchemaObject> = {};
+      for (const key of Object.keys(value.properties).sort()) {
+        properties[key] = normalize(value.properties[key] as SchemaObject);
+      }
+      next.properties = properties;
+    }
+    if (value.items && typeof value.items === "object" && !Array.isArray(value.items)) {
+      next.items = normalize(value.items as SchemaObject);
+    }
+    if (typeof value.$ref === "string") next.$ref = value.$ref;
+    return next;
+  };
+
+  return JSON.stringify(normalize(schema));
+}
+
 function buildParameterMatchers(doc: OpenAPIDocument): Map<string, string> {
   const matchers = new Map<string, string>();
   const xComponents = doc["x-components"] as Json | undefined;
@@ -44,6 +80,23 @@ function buildParameterMatchers(doc: OpenAPIDocument): Map<string, string> {
       const ref = `#/x-components/${category}/${name}`;
       matchers.set(paramMatchKey(param), ref);
     }
+  }
+
+  return matchers;
+}
+
+function buildBodySchemaMatchers(doc: OpenAPIDocument): Map<string, string> {
+  const matchers = new Map<string, string>();
+  const bodies = (doc["x-components"] as Json | undefined)?.body as Json | undefined;
+  if (!bodies || typeof bodies !== "object") return matchers;
+
+  for (const [name, def] of Object.entries(bodies)) {
+    if (!def || typeof def !== "object") continue;
+    const param = def as ParameterObject;
+    const schema = bodySchemaFromParam(param);
+    const key = schemaMatchKey(schema);
+    if (!key) continue;
+    matchers.set(key, `#/x-components/body/${name}`);
   }
 
   return matchers;
@@ -68,6 +121,7 @@ export function buildXComponentCatalog(doc: OpenAPIDocument): XComponentCatalog 
 
   return {
     parameters: buildParameterMatchers(doc),
+    bodySchemas: buildBodySchemaMatchers(doc),
     errorResponseRef: errorFromReturn ?? errorFromGroup,
     emptyResponseRef: findReturnComponentRef(doc, ["Empty"]),
   };
@@ -78,6 +132,16 @@ function matchParameterRef(
   catalog: XComponentCatalog
 ): ParameterObject {
   if (typeof param.$ref === "string") return { $ref: param.$ref };
+
+  if (param.in === "body") {
+    const key = schemaMatchKey(bodySchemaFromParam(param));
+    if (key) {
+      const ref = catalog.bodySchemas.get(key);
+      if (ref) return { $ref: ref };
+    }
+    return param;
+  }
+
   const ref = catalog.parameters.get(paramMatchKey(param));
   return ref ? { $ref: ref } : param;
 }
@@ -167,4 +231,36 @@ export function styleSwagger2OperationWithXComponents(
   }
 
   return reorderOperationKeys(next);
+}
+
+export function captureXComponentKeys(doc: OpenAPIDocument): Record<string, string[]> {
+  const xComponents = doc["x-components"] as Json | undefined;
+  if (!xComponents || typeof xComponents !== "object") return {};
+
+  const result: Record<string, string[]> = {};
+  for (const [category, items] of Object.entries(xComponents)) {
+    if (!items || typeof items !== "object" || Array.isArray(items)) continue;
+    result[category] = Object.keys(items as Json).sort();
+  }
+  return result;
+}
+
+export function computeXComponentAdditions(
+  doc: OpenAPIDocument,
+  snapshotKeys: Record<string, string[]> | undefined
+): Record<string, Record<string, unknown>> {
+  const current = doc["x-components"] as Json | undefined;
+  if (!current || typeof current !== "object") return {};
+
+  const additions: Record<string, Record<string, unknown>> = {};
+  for (const [category, items] of Object.entries(current)) {
+    if (!items || typeof items !== "object" || Array.isArray(items)) continue;
+    const imported = new Set(snapshotKeys?.[category] ?? []);
+    for (const [name, def] of Object.entries(items as Json)) {
+      if (imported.has(name)) continue;
+      additions[category] ??= {};
+      additions[category][name] = def;
+    }
+  }
+  return additions;
 }
